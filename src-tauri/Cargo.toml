@@ -1,3 +1,5 @@
+cargo-features = ["profile-rustflags"]
+
 [package]
 name = "mozilla-assist"
 version = "0.1.0"
@@ -53,6 +55,7 @@ path = "examples/seaorm.rs"
 [build-dependencies]
 tauri-build = { version = "2", features = ["isolation"] }
 
+# Common dependencies (no Metal features)
 [dependencies]
 migration = { path = "./migration" }
 entity = { path = "./entity" }
@@ -63,15 +66,9 @@ serde_json = "1"
 imap = "3.0.0-alpha.15"
 native-tls = "0.2.14"
 dotenv = "0.15.0"
-candle-nn = { version = "0.8.3", features = ["metal"] }
-candle-core = { version = "0.8.3", features = ["metal"] }
-candle-transformers = { version = "0.8.3", features = ["metal"] }
 hf-hub = "0.4.1"
 tokenizers = "0.21.0"
 anyhow = "1.0.96"
-mistralrs = { git = "https://github.com/EricLBuehler/mistral.rs.git", rev = "e2f9648cbb6e4b8a6ac1d9e44df5900210fa5862", features = [
-    "metal"
-] }
 tokio = "1.43.0"
 mailparse = "0.16.0"
 sea-orm = { version = "1.1.6", features = [
@@ -82,9 +79,46 @@ sea-orm = { version = "1.1.6", features = [
 chrono = "0.4.39"
 uuid = "1.14.0"
 html2text = "0.14.0"
+# Base versions without Metal for all platforms
+candle-nn = { version = "0.8.3", default-features = false }
+candle-core = { version = "0.8.3", default-features = false }
+candle-transformers = { version = "0.8.3", default-features = false }
+mistralrs = { git = "https://github.com/EricLBuehler/mistral.rs.git", rev = "e2f9648cbb6e4b8a6ac1d9e44df5900210fa5862", default-features = false }
 
+# Metal features for non-iOS platforms (macOS, etc)
+[target.'cfg(not(target_os = "ios"))'.dependencies]
+candle-nn = { version = "0.8.3", features = ["metal"] }
+candle-core = { version = "0.8.3", features = ["metal"] }
+candle-transformers = { version = "0.8.3", features = ["metal"] }
+mistralrs = { git = "https://github.com/EricLBuehler/mistral.rs.git", rev = "e2f9648cbb6e4b8a6ac1d9e44df5900210fa5862", features = [
+    "metal"
+] }
+
+# Metal features for physical iOS devices only (not simulators)
+[target.'cfg(all(target_os = "ios", target_env = "os"))'.dependencies]
+candle-nn = { version = "0.8.3", features = [
+    "metal"
+], default-features = false }
+candle-core = { version = "0.8.3", features = [
+    "metal"
+], default-features = false }
+candle-transformers = { version = "0.8.3", features = [
+    "metal"
+], default-features = false }
+mistralrs = { git = "https://github.com/EricLBuehler/mistral.rs.git", rev = "e2f9648cbb6e4b8a6ac1d9e44df5900210fa5862", features = [
+    "metal"
+], default-features = false }
+
+# Add a specific target for iOS devices with CPU feature flags disabled
+[target.'cfg(target_os = "ios")'.dependencies]
+gemm-common = { version = "*", default-features = false }
+gemm-f16 = { version = "*", default-features = false }
+
+# iOS simulator builds without Metal
+# This intentionally has no Metal features
 [profile.dev]
 incremental = true # Compile your binary in smaller steps.
+rustflags = ["-C", "target-feature=+fp16,+fhm"]
 
 # Always run candle in release mode - it will hang in debug mode.
 [profile.dev.package.candle-nn]
@@ -99,8 +133,8 @@ debug = false
 # Always run candle in release mode - it will hang in debug mode.
 [profile.dev.package.candle-transformers]
 opt-level = 3
-debug = false
 
+# debug = false
 # Always run mistralrs in release mode - it will hang in debug mode.
 [profile.dev.package.mistralrs]
 opt-level = 3

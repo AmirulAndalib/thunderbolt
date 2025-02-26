@@ -4156,6 +4156,8 @@ dependencies = [
  "chrono",
  "dotenv",
  "entity",
+ "gemm-common 0.18.2",
+ "gemm-f16 0.18.2",
  "hf-hub 0.4.1",
  "html2text",
  "imap",
