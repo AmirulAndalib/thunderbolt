@@ -10,7 +10,7 @@ configs:
 settingGroups:
   app:
     base:
-      PRODUCT_NAME: mozilla-assist
+      PRODUCT_NAME: Assist
       PRODUCT_BUNDLE_IDENTIFIER: org.mozilla.assist
 targetTemplates:
   app:

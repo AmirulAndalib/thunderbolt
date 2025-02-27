@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "mozilla-assist",
+  "productName": "Assist",
   "version": "0.1.0",
   "identifier": "org.mozilla.assist",
   "build": {
@@ -12,9 +12,13 @@
   "app": {
     "windows": [
       {
-        "title": "mozilla-assist",
-        "width": 800,
-        "height": 600
+        "label": "Assist",
+        "title": "Assist",
+        "width": 1400,
+        "height": 1000,
+        "minHeight": 600,
+        "minWidth": 600,
+        "titleBarStyle": "Transparent"
       }
     ],
     "security": {
