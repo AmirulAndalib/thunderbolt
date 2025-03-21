@@ -354,8 +354,8 @@ async fn init_embedder(app_handle: tauri::AppHandle) -> Result<(), String> {
 async fn get_embeddings(
     app_handle: tauri::AppHandle,
     texts: Vec<String>,
-) -> Result<serde_json::Value, String> {
-    // Get state to access the embedder
+) -> Result<Vec<Vec<f32>>, String> {
+    // Access state directly
     let state = app_handle.state::<Mutex<AppState>>();
     let state_guard = state.lock().await;
 
@@ -365,12 +365,11 @@ async fn get_embeddings(
         .as_ref()
         .ok_or_else(|| "Embedder not initialized. Call init_embedder first.".to_string())?;
 
-    // Process all texts in optimized batches
-    let embeddings = get_embeddings_with_embedder(embedder, &texts)
-        .map_err(|e| format!("Failed to generate embeddings: {}", e))?;
-
-    // Convert result to JSON array
-    serde_json::to_value(embeddings).map_err(|e| format!("Failed to serialize embeddings: {}", e))
+    // Use new batch optimized function
+    match get_embeddings_with_embedder(embedder, &texts) {
+        Ok(embeddings) => Ok(embeddings),
+        Err(e) => Err(format!("Failed to generate embeddings: {}", e)),
+    }
 }
 
 #[tokio::main]

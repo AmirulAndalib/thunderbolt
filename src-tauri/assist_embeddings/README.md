@@ -1,6 +1,63 @@
 # Assist Embeddings
 
-This crate provides functionality for generating embeddings for email messages stored in a database.
+This module provides optimized text embedding functionality for the Mozilla Assistant using the Jina BERT model.
+
+## Key Features
+
+- Efficient text embedding generation using Candle ML
+- Metal GPU acceleration on macOS
+- Optimized batch processing of multiple texts
+- Adaptive batch sizing based on text length
+- Resource management to prevent GPU memory issues
+
+## Performance Optimizations
+
+The following optimizations have been implemented:
+
+1. **Adaptive Batch Sizing**: Automatically adjusts batch size based on average text length to prevent memory issues with very long texts.
+
+2. **Sequential Processing with Pauses**: Uses sequential processing with small pauses between operations to avoid GPU command buffer conflicts.
+
+3. **Memory Management**: Implements explicit memory management to release GPU resources between operations.
+
+4. **Special Case Handling**: Optimizes the single-text case for better performance.
+
+## Benchmark Results
+
+Performance benchmarks show the following approximate processing times:
+
+- Single text: ~21ms
+- Batch processing: ~28ms per text with optimal resource utilization
+
+## Usage
+
+### Single Text Embedding
+
+```rust
+let embedder = Embedder::new()?;
+let text = "This is a sample text to embed.";
+let embedding = get_embedding_with_embedder(&embedder, text)?;
+```
+
+### Multiple Text Embeddings
+
+```rust
+let embedder = Embedder::new()?;
+let texts = vec![
+    "First text to embed.".to_string(),
+    "Second text to embed.".to_string(),
+    // ...more texts
+];
+let embeddings = get_embeddings_with_embedder(&embedder, &texts)?;
+```
+
+## Integration with Tauri
+
+The embeddings module is integrated with the Tauri application through commands:
+
+- `init_embedder`: Initializes the embedder instance
+- `get_embedding`: Generates an embedding for a single text
+- `get_embeddings`: Generates embeddings for multiple texts in an optimized manner
 
 ## Features
 

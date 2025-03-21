@@ -18,6 +18,7 @@ candle-transformers = { version = "0.8.3", features = ["metal"] }
 hf-hub = "0.4.2"
 tokenizers = "0.21.1"
 uuid = { version = "1.16.0", features = ["v7", "rng"] }
+rayon = "1.8.0"
 
 [[example]]
 name = "generate_embeddings"
@@ -26,3 +27,7 @@ path = "examples/generate_embeddings.rs"
 [[example]]
 name = "test_embeddings"
 path = "examples/test_embeddings.rs"
+
+[[example]]
+name = "test_quantized_embeddings"
+path = "examples/test_quantized_embeddings.rs"

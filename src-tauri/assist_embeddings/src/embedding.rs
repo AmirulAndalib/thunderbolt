@@ -45,6 +45,8 @@ impl Embedder {
             PositionEmbeddingType::Alibi,
         );
 
+        // We'll remain with F32 as changing to F16 causes dtype mismatch issues with the model operations
+        // The model internally may still do optimizations on GPU
         let vb = unsafe { VarBuilder::from_mmaped_safetensors(&[model], DType::F32, &device)? };
         let model = BertModel::new(vb, &config)?;
 
@@ -96,55 +98,45 @@ pub fn get_embeddings_with_embedder(
     embedder: &Embedder,
     texts: &[String],
 ) -> anyhow::Result<Vec<Vec<f32>>> {
-    // Use the whole vector as input, with a reasonable maximum batch size
-    // to prevent memory issues with extremely large vectors
-    let max_batch_size = 50;
+    if texts.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    // Adjust batch size based on average text length to optimize memory usage
+    let avg_text_len = texts.iter().map(|s| s.len()).sum::<usize>() / texts.len();
+    let max_batch_size = if avg_text_len > 1000 {
+        10 // Use smaller batches for longer texts
+    } else if avg_text_len > 500 {
+        20
+    } else {
+        30 // Use larger batches for shorter texts
+    };
+
+    // Optimize single text case
+    if texts.len() == 1 {
+        return Ok(vec![get_embedding_with_embedder(embedder, &texts[0])?]);
+    }
+
     let mut results = Vec::with_capacity(texts.len());
 
-    // Process in reasonable chunks if the input is very large
-    for chunk in texts.chunks(max_batch_size) {
+    // Process in batches to optimize memory usage and GPU utilization
+    for (_i, chunk) in texts.chunks(max_batch_size).enumerate() {
         if chunk.len() == 1 {
-            // Single item case, use the existing function to avoid complexity
             let embedding = get_embedding_with_embedder(embedder, &chunk[0])?;
             results.push(embedding);
-            continue;
+        } else {
+            // Process batch sequentially to avoid GPU command buffer conflicts
+            for text in chunk {
+                let embedding = get_embedding_with_embedder(embedder, text)?;
+                results.push(embedding);
+
+                // A small delay between operations can help GPU stability
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
         }
 
-        // Tokenize all texts in batch
-        let mut token_ids_batch = Vec::with_capacity(chunk.len());
-        let max_tokens = 8192; // Maximum context window for model
-
-        for text in chunk {
-            // Tokenize with truncation for each text - using as_str() to fix the trait bound issue
-            let encoding = embedder
-                .tokenizer
-                .encode(text.as_str(), true)
-                .map_err(E::msg)?;
-            let token_ids = if encoding.get_ids().len() > max_tokens {
-                encoding.get_ids()[0..max_tokens].to_vec()
-            } else {
-                encoding.get_ids().to_vec()
-            };
-            token_ids_batch.push(token_ids);
-        }
-
-        // Process each tokenized input separately but more efficiently than individual calls
-        for token_ids in token_ids_batch {
-            let token_tensor = Tensor::new(&token_ids[..], &embedder.device)?.unsqueeze(0)?;
-
-            // Get embeddings
-            let embeddings = embedder.model.forward(&token_tensor)?;
-            let (_n_sentence, n_tokens, _hidden_size) = embeddings.dims3()?;
-            let embeddings = (embeddings.sum(1)? / (n_tokens as f64))?;
-
-            // Normalize and flatten embeddings
-            let normalized = normalize_l2(&embeddings).map_err(E::msg)?;
-            let flattened = normalized.flatten_all().map_err(E::msg)?;
-
-            // Convert to Vec<f32> and store
-            let embedding_vec = flattened.to_vec1().map_err(|e| anyhow::Error::new(e))?;
-            results.push(embedding_vec);
-        }
+        // A slight pause between batches to allow GPU to catch up
+        std::thread::sleep(std::time::Duration::from_millis(10));
     }
 
     Ok(results)
