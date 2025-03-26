@@ -1,5 +1,5 @@
 import { relations } from 'drizzle-orm'
-import { chatMessagesTable, chatThreadsTable, emailMessagesTable, emailThreadsTable, embeddingsTable } from './schema'
+import { chatMessagesTable, chatThreadsTable, emailMessagesTable, emailThreadsTable, embeddingsTable, todosTable } from './schema'
 
 export const chatThreadsRelations = relations(chatThreadsTable, ({ many }) => ({
   messages: many(chatMessagesTable),
@@ -39,5 +39,13 @@ export const emailThreadsRelations = relations(emailThreadsTable, ({ many, one }
   embedding: one(embeddingsTable, {
     fields: [emailThreadsTable.id],
     references: [embeddingsTable.email_thread_id],
+  }),
+  todos: many(todosTable),
+}))
+
+export const todosRelations = relations(todosTable, ({ one }) => ({
+  emailThread: one(emailThreadsTable, {
+    fields: [todosTable.email_thread_id],
+    references: [emailThreadsTable.id],
   }),
 }))

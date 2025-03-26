@@ -39,6 +39,7 @@ export type ModelsSettings = {
 export type Settings = {
   account?: AccountsSettings
   models?: ModelsSettings
+  last_generated_todos_from_inbox?: string
 }
 
 export type DrizzleContextType = {

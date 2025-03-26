@@ -43,6 +43,13 @@
       "when": 1742873229368,
       "tag": "0005_striped_ultimates",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1742949645575,
+      "tag": "0006_panoramic_proteus",
+      "breakpoints": true
     }
   ]
 }

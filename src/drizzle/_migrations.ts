@@ -1,6 +1,6 @@
 /**
  * This file is auto-generated. Do not edit directly.
- * Generated on: 2025-03-25T19:34:40.554Z
+ * Generated on: 2025-03-26T01:11:16.071Z
  */
 
 export interface Migration {
@@ -39,5 +39,10 @@ export const migrations: Migration[] = [
     "hash": "0005_striped_ultimates",
     "name": "0005_striped_ultimates.sql",
     "sql": "ALTER TABLE `email_threads` ADD `root_message_id` text;"
+  },
+  {
+    "hash": "0006_panoramic_proteus",
+    "name": "0006_panoramic_proteus.sql",
+    "sql": "CREATE TABLE `todos` (\n\t`id` text PRIMARY KEY NOT NULL,\n\t`item` text NOT NULL,\n\t`email_thread_id` text,\n\tFOREIGN KEY (`email_thread_id`) REFERENCES `email_threads`(`id`) ON UPDATE cascade ON DELETE set null\n);\n--> statement-breakpoint\nCREATE UNIQUE INDEX `todos_id_unique` ON `todos` (`id`);"
   }
 ];

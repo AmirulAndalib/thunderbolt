@@ -78,6 +78,12 @@ export const emailMessagesTable = sqliteTable('email_messages', {
   email_thread_id: text('email_thread_id').references(() => emailThreadsTable.id, { onDelete: 'set null', onUpdate: 'cascade' }),
 })
 
+export const todosTable = sqliteTable('todos', {
+  id: text('id').primaryKey().notNull().unique(),
+  item: text('item').notNull(),
+  email_thread_id: text('email_thread_id').references(() => emailThreadsTable.id, { onDelete: 'set null', onUpdate: 'cascade' }),
+})
+
 export const embeddingsTable = sqliteTable('embeddings', {
   id: text('id').primaryKey().notNull().unique(),
   email_message_id: text('email_message_id')

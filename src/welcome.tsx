@@ -1,27 +1,34 @@
 import { useSettings } from '@/settings/provider'
 import { createOpenAI } from '@ai-sdk/openai'
 import { streamObject } from 'ai'
-import { Calendar, CheckCircle2, Mail, MessageSquare, RefreshCw, Square } from 'lucide-react'
+import { isNull } from 'drizzle-orm'
+import { Calendar, CheckCircle2, ChevronDown, Mail, MessageSquare, RefreshCw, Square } from 'lucide-react'
 import { useEffect, useState } from 'react'
+import { v7 as uuidv7 } from 'uuid'
 import { z } from 'zod'
 import { Button } from './components/ui/button'
 import { Skeleton } from './components/ui/skeleton'
+import { useDrizzle } from './db/provider'
+import { todosTable } from './db/schema'
 import { useImap } from './imap/provider'
 import { getFromFromParsedEmail } from './lib/utils'
+
 export default function WelcomePage() {
   const settingsContext = useSettings()
   const { client: imapClient } = useImap()
+  const { db } = useDrizzle()
   const [_inboxSummary, setInboxSummary] = useState<string | null>(null)
   const [toDoList, setToDoList] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const [_emails, setEmails] = useState<any[]>([])
   const [isRefreshing, setIsRefreshing] = useState(false)
+  const [showAllTodos, setShowAllTodos] = useState(false)
 
   const hours = new Date().getHours()
   const timeOfDay = hours < 12 ? 'Morning' : hours < 18 ? 'Afternoon' : 'Evening'
   const date = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
 
-  const fetchInboxData = async () => {
+  const fetchInboxData = async (forceRefresh = false) => {
     try {
       if (!imapClient) return
 
@@ -29,71 +36,94 @@ export default function WelcomePage() {
       setLoading(true)
       setToDoList([]) // Clear existing todos while loading
 
-      // Fetch emails from inbox
-      const inboxEmails = await imapClient.fetchInbox('INBOX', undefined, 10)
-      setEmails(inboxEmails)
+      // Check if we need to regenerate todos
+      const lastGeneratedTodos = settingsContext.settings?.last_generated_todos_from_inbox
+      const now = new Date().getTime()
+      const oneHourInMs = 60 * 60 * 1000
 
-      // Get API key from settings
-      const apiKey = settingsContext?.settings?.models?.openai_api_key
+      console.log('Regenerating todos')
 
-      if (!apiKey) {
-        setInboxSummary('Please set your OpenAI API key in settings to generate inbox summaries.')
-        setLoading(false)
-        setIsRefreshing(false)
-        return
-      }
+      // If lastGeneratedTodos is more than 1 hour old or doesn't exist, or if forceRefresh is true, regenerate todos
+      if (forceRefresh || !lastGeneratedTodos || now - parseInt(lastGeneratedTodos) > oneHourInMs) {
+        // Delete existing todos with email_thread_id
+        await db.delete(todosTable).where(isNull(todosTable.email_thread_id))
 
-      const openai = createOpenAI({
-        apiKey,
-      })
+        // Fetch emails from inbox
+        const inboxEmails = await imapClient.fetchInbox('INBOX', undefined, 10)
+        setEmails(inboxEmails)
 
-      // Create a prompt for summarizing the inbox
-      const emailsContext = inboxEmails
-        .map(
-          (email) => `Subject: ${email.subject || 'No subject'}\nFrom: ${getFromFromParsedEmail(email) || 'Unknown'}\nSnippet: ${email.snippet || email.clean_text?.substring(0, 300) || 'No content'}`
-        )
-        .join('\n\n')
+        // Get API key from settings
+        const apiKey = settingsContext?.settings?.models?.openai_api_key
 
-      const result = streamObject({
-        model: openai('gpt-4o'),
-        system: `You are an email assistant that turns emails into a to-do list. Provide up to 3 to-do items based on the emails provided. Only include items that are appear important and actionable. Ignore items that appear to be newsletters, informational, solicitation, or promotional. If you reference a person, use their full name (the user might not know who they are). Assume the user has not read the emails and doesn't know anything about them or the people, places, or ideas mentioned in them. Keep each line under 100 characters.`,
-        messages: [
-          {
-            role: 'user',
-            content: `Here are the latest emails in my inbox. Please provide a summary:\n\n${emailsContext}`,
-          },
-        ],
-        output: 'array',
-        schema: z.string(),
-        //   onChunk({ chunk }) {
-        //     if (chunk.type === 'text-delta') {
-        //       setLoading(false)
-        //       setInboxSummary((prev) => (prev || '') + chunk.textDelta)
-        //     }
-        //   },
-        onError(error) {
-          console.error('Error fetching inbox data:', error)
-          setInboxSummary('Error loading inbox summary. Please try again later.')
+        if (!apiKey) {
+          setInboxSummary('Please set your OpenAI API key in settings to generate inbox summaries.')
           setLoading(false)
           setIsRefreshing(false)
-        },
-        onFinish(_response) {},
-      })
+          return
+        }
 
-      // result.consumeStream()
-      // console.log(await result.response)
+        const openai = createOpenAI({
+          apiKey,
+        })
 
-      // for await (const hero of result.elementStream) {
-      //   setLoading(false)
-      //   setToDoList((prev) => [...prev, hero])
-      // }
+        // Create a prompt for summarizing the inbox
+        const emailsContext = inboxEmails
+          .map(
+            (email) =>
+              `Subject: ${email.subject || 'No subject'}\nFrom: ${getFromFromParsedEmail(email) || 'Unknown'}\nSnippet: ${email.snippet || email.clean_text?.substring(0, 300) || 'No content'}`
+          )
+          .join('\n\n')
 
-      for await (const partialObject of result.partialObjectStream) {
+        const result = streamObject({
+          model: openai('gpt-4o'),
+          system: `You are an email assistant that turns emails into a to-do list. Provide to-do items based on the emails provided, but ensure that you never duplicate items. Only include items that are appear important and actionable. Ignore items that appear to be newsletters, informational, solicitation, or promotional. If you reference a person, use their full name (the user might not know who they are). Assume the user has not read the emails and doesn't know anything about them or the people, places, or ideas mentioned in them. Keep each line under 100 characters.`,
+          messages: [
+            {
+              role: 'user',
+              content: `Here are the latest emails in my inbox. Please provide a summary:\n\n${emailsContext}`,
+            },
+          ],
+          output: 'array',
+          schema: z.string(),
+          onError(error) {
+            console.error('Error fetching inbox data:', error)
+            setInboxSummary('Error loading inbox summary. Please try again later.')
+            setLoading(false)
+            setIsRefreshing(false)
+          },
+          onFinish(_response) {
+            console.log('response', _response)
+          },
+        })
+
+        for await (const partialObject of result.partialObjectStream) {
+          setLoading(false)
+          setToDoList((_prev) => partialObject)
+
+          // Insert todos into the database
+          await Promise.all(
+            partialObject.map((todo) =>
+              db.insert(todosTable).values({
+                id: uuidv7(),
+                item: todo,
+                email_thread_id: null,
+              })
+            )
+          )
+        }
+
+        // Save the timestamp of when we generated the todos
+        await settingsContext.setSettings({
+          ...settingsContext.settings,
+          last_generated_todos_from_inbox: now.toString(),
+        })
+      } else {
+        // If we don't need to regenerate todos, just fetch them from the database
+        const todos = await db.select().from(todosTable).orderBy(todosTable.id)
+        setToDoList(todos.map((todo) => todo.item))
         setLoading(false)
-        setToDoList((_prev) => partialObject)
       }
 
-      // await result.text
       setLoading(false)
       setIsRefreshing(false)
     } catch (error) {
@@ -106,7 +136,9 @@ export default function WelcomePage() {
 
   useEffect(() => {
     fetchInboxData()
-  }, [imapClient, settingsContext])
+  }, [])
+
+  const displayedTodos = showAllTodos ? toDoList : toDoList.slice(0, 3)
 
   return (
     <div className="h-full w-full p-8 flex flex-col gap-6 bg-gradient-to-br from-background to-secondary/20">
@@ -125,7 +157,7 @@ export default function WelcomePage() {
               </div>
               <h2 className="text-xl font-semibold">Your Action Items</h2>
             </div>
-            <Button variant="ghost" size="icon" onClick={fetchInboxData} className="cursor-pointer" disabled={isRefreshing}>
+            <Button variant="ghost" size="icon" onClick={() => fetchInboxData(true)} className="cursor-pointer" disabled={isRefreshing}>
               <RefreshCw className={`h-5 w-5 ${isRefreshing ? 'animate-spin' : ''}`} />
             </Button>
           </div>
@@ -146,19 +178,31 @@ export default function WelcomePage() {
               </>
             ) : (
               <div className="space-y-1">
-                {toDoList.length > 0 ? (
-                  toDoList.map((todo, index) => (
-                    <div
-                      key={index}
-                      className="p-4 bg-secondary/10 hover:bg-secondary/80 rounded-lg flex items-start gap-3 cursor-pointer transition-colors group"
-                      onClick={() => console.log(`Todo clicked: ${todo}`)}
-                    >
-                      <Square className="h-5 w-5 text-primary flex-shrink-0 mt-0.5 group-hover:text-primary/80 transition-colors" />
-                      <div className="flex-1">
-                        <span className="text-sm font-medium">{todo}</span>
+                {displayedTodos.length > 0 ? (
+                  <>
+                    {displayedTodos.map((todo, index) => (
+                      <div
+                        key={index}
+                        className="p-4 bg-secondary/10 hover:bg-secondary/80 rounded-lg flex items-start gap-3 cursor-pointer transition-colors group"
+                        onClick={() => console.log(`Todo clicked: ${todo}`)}
+                      >
+                        <Square className="h-5 w-5 text-primary flex-shrink-0 mt-0.5 group-hover:text-primary/80 transition-colors" />
+                        <div className="flex-1">
+                          <span className="text-sm font-medium">{todo}</span>
+                        </div>
                       </div>
-                    </div>
-                  ))
+                    ))}
+                    {toDoList.length > 3 && !showAllTodos && (
+                      <Button variant="ghost" className="w-full mt-4 flex items-center justify-center gap-2" onClick={() => setShowAllTodos(true)}>
+                        Show More <ChevronDown className="h-4 w-4" />
+                      </Button>
+                    )}
+                    {showAllTodos && (
+                      <Button variant="ghost" className="w-full mt-4 flex items-center justify-center gap-2" onClick={() => setShowAllTodos(false)}>
+                        Show Less <ChevronDown className="h-4 w-4 rotate-180" />
+                      </Button>
+                    )}
+                  </>
                 ) : (
                   <div className="text-center py-6 text-muted-foreground flex flex-col items-center gap-2">
                     <CheckCircle2 className="h-8 w-8 text-primary/40" />
