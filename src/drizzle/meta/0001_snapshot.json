@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "42f49b05-1d4f-4a40-b6bc-9319ed1324cb",
-  "prevId": "b7a6360a-3ee1-455c-bd1a-9f8f3107ade7",
+  "id": "b8879196-0a86-42f8-939a-48551de8a366",
+  "prevId": "2062dd8e-d0da-416c-8333-a18bce01d143",
   "tables": {
     "chat_messages": {
       "name": "chat_messages",
@@ -218,7 +218,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
+          "onDelete": "set null",
           "onUpdate": "cascade"
         }
       },
@@ -248,6 +248,13 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true,
+          "autoincrement": false
+        },
+        "root_message_id": {
+          "name": "root_message_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
           "autoincrement": false
         }
       },
@@ -292,6 +299,13 @@
         "embedding": {
           "name": "embedding",
           "type": "F32_BLOB(384)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "as_text": {
+          "name": "as_text",
+          "type": "text",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
@@ -379,6 +393,45 @@
         }
       },
       "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "todos": {
+      "name": "todos",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "item": {
+          "name": "item",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "imap_id": {
+          "name": "imap_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "todos_id_unique": {
+          "name": "todos_id_unique",
+          "columns": [
+            "id"
+          ],
+          "isUnique": true
+        }
+      },
       "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},

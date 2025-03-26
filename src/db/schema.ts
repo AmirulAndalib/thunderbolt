@@ -81,7 +81,7 @@ export const emailMessagesTable = sqliteTable('email_messages', {
 export const todosTable = sqliteTable('todos', {
   id: text('id').primaryKey().notNull().unique(),
   item: text('item').notNull(),
-  email_thread_id: text('email_thread_id').references(() => emailThreadsTable.id, { onDelete: 'set null', onUpdate: 'cascade' }),
+  imap_id: text('imap_id'), // We don't use a foreign key here because the email message might not exist in the database yet
 })
 
 export const embeddingsTable = sqliteTable('embeddings', {

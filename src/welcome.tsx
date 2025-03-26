@@ -1,7 +1,7 @@
 import { useSettings } from '@/settings/provider'
 import { createOpenAI } from '@ai-sdk/openai'
 import { streamObject } from 'ai'
-import { isNull } from 'drizzle-orm'
+import { isNotNull } from 'drizzle-orm'
 import { Calendar, CheckCircle2, ChevronDown, Mail, MessageSquare, RefreshCw, Square } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { v7 as uuidv7 } from 'uuid'
@@ -11,16 +11,15 @@ import { Skeleton } from './components/ui/skeleton'
 import { useDrizzle } from './db/provider'
 import { todosTable } from './db/schema'
 import { useImap } from './imap/provider'
-import { getFromFromParsedEmail } from './lib/utils'
+import { getFromFromParsedEmail, getMessageIdFromParsedEmail } from './lib/utils'
 
 export default function WelcomePage() {
   const settingsContext = useSettings()
   const { client: imapClient } = useImap()
   const { db } = useDrizzle()
   const [_inboxSummary, setInboxSummary] = useState<string | null>(null)
-  const [toDoList, setToDoList] = useState<string[]>([])
+  const [toDoList, setToDoList] = useState<{ item: string; imap_id: string | null }[]>([])
   const [loading, setLoading] = useState(true)
-  const [_emails, setEmails] = useState<any[]>([])
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [showAllTodos, setShowAllTodos] = useState(false)
 
@@ -46,11 +45,10 @@ export default function WelcomePage() {
         console.log('Regenerating todos')
 
         // Delete existing todos with email_thread_id
-        await db.delete(todosTable).where(isNull(todosTable.email_thread_id))
+        await db.delete(todosTable).where(isNotNull(todosTable.imap_id))
 
         // Fetch emails from inbox
         const inboxEmails = await imapClient.fetchInbox('INBOX', undefined, 10)
-        setEmails(inboxEmails)
 
         // Get API key from settings
         const apiKey = settingsContext?.settings?.models?.openai_api_key
@@ -70,7 +68,9 @@ export default function WelcomePage() {
         const emailsContext = inboxEmails
           .map(
             (email) =>
-              `Subject: ${email.subject || 'No subject'}\nFrom: ${getFromFromParsedEmail(email) || 'Unknown'}\nSnippet: ${email.snippet || email.clean_text?.substring(0, 300) || 'No content'}`
+              `IMAP ID: ${getMessageIdFromParsedEmail(email)}\nSubject: ${email.subject || 'No subject'}\nFrom: ${getFromFromParsedEmail(email) || 'Unknown'}\nSnippet: ${
+                email.snippet || email.clean_text?.substring(0, 300) || 'No content'
+              }`
           )
           .join('\n\n')
 
@@ -84,7 +84,10 @@ export default function WelcomePage() {
             },
           ],
           output: 'array',
-          schema: z.string(),
+          schema: z.object({
+            imap_id: z.string(),
+            item: z.string(),
+          }),
           onError(error) {
             console.error('Error fetching inbox data:', error)
             setInboxSummary('Error loading inbox summary. Please try again later.')
@@ -105,8 +108,8 @@ export default function WelcomePage() {
         for (const todo of await result.object) {
           await db.insert(todosTable).values({
             id: uuidv7(),
-            item: todo,
-            email_thread_id: null,
+            item: todo.item,
+            imap_id: todo.imap_id,
           })
         }
 
@@ -118,7 +121,7 @@ export default function WelcomePage() {
       } else {
         // If we don't need to regenerate todos, just fetch them from the database
         const todos = await db.select().from(todosTable).orderBy(todosTable.id)
-        setToDoList(todos.map((todo) => todo.item))
+        setToDoList(todos.map((todo) => ({ item: todo.item, imap_id: todo.imap_id })))
         setLoading(false)
       }
 
@@ -182,11 +185,11 @@ export default function WelcomePage() {
                       <div
                         key={index}
                         className="p-4 bg-secondary/10 hover:bg-secondary/80 rounded-lg flex items-start gap-3 cursor-pointer transition-colors group"
-                        onClick={() => console.log(`Todo clicked: ${todo}`)}
+                        onClick={() => console.log(`Todo clicked: ${todo.imap_id}`)}
                       >
                         <Square className="h-5 w-5 text-primary flex-shrink-0 mt-0.5 group-hover:text-primary/80 transition-colors" />
                         <div className="flex-1">
-                          <span className="text-sm font-medium">{todo}</span>
+                          <span className="text-sm font-medium">{todo.item}</span>
                         </div>
                       </div>
                     ))}

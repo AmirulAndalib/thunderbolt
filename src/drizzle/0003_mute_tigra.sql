@@ -1,1 +1,0 @@
-ALTER TABLE `email_threads` ADD `as_text` text NOT NULL;

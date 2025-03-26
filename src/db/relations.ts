@@ -42,10 +42,3 @@ export const emailThreadsRelations = relations(emailThreadsTable, ({ many, one }
   }),
   todos: many(todosTable),
 }))
-
-export const todosRelations = relations(todosTable, ({ one }) => ({
-  emailThread: one(emailThreadsTable, {
-    fields: [todosTable.email_thread_id],
-    references: [emailThreadsTable.id],
-  }),
-}))
