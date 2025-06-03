@@ -1,6 +1,7 @@
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import { experimental_createMCPClient } from 'ai'
 import { createContext, ReactNode, useContext, useEffect, useRef, useState } from 'react'
+import { TauriStreamableHTTPClientTransport } from './tauri-http-transport'
 
 type MCPClient = Awaited<ReturnType<typeof experimental_createMCPClient>>
 
@@ -31,14 +32,29 @@ export function MCPProvider({ children }: { children: ReactNode }) {
 
   const createClient = async (url: string): Promise<MCPClient> => {
     console.log('Creating MCP client for URL:', url)
-    const mcpClient = await experimental_createMCPClient({
-      transport: new StreamableHTTPClientTransport(new URL(url), {
-        requestInit: {
-          headers: {
-            Accept: 'application/json, text/event-stream',
-          },
+    
+    // Check if we need to use Tauri fetch for external URLs
+    const urlObj = new URL(url)
+    const isExternal = !['localhost', '127.0.0.1'].includes(urlObj.hostname)
+    
+    // Create transport with appropriate implementation
+    const transportOptions = {
+      requestInit: {
+        headers: {
+          Accept: 'application/json, text/event-stream',
         },
-      }),
+      },
+    }
+    
+    // Use Tauri transport for external URLs to bypass CORS
+    const transport = isExternal
+      ? new TauriStreamableHTTPClientTransport(urlObj, transportOptions)
+      : new StreamableHTTPClientTransport(urlObj, transportOptions)
+    
+    console.log(`Using ${isExternal ? 'Tauri' : 'standard'} transport for MCP client`)
+    
+    const mcpClient = await experimental_createMCPClient({
+      transport,
     })
     return mcpClient
   }
