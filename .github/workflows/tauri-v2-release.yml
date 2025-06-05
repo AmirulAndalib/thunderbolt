@@ -51,7 +51,7 @@ jobs:
         with:
           toolchain: nightly
           cache-workspaces: src-tauri
-          rustflags: ""
+          rustflags: ''
 
       - name: Install sccache
         run: cargo install sccache
@@ -62,24 +62,35 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y webkit2gtk-4.1 libappindicator3-dev
 
-      - name: build Tauri app for Windows, Linux
-        if: matrix.os != 'macos-latest'
+      - name: build Tauri app for Linux
+        if: matrix.os == 'ubuntu-22.04'
         run: |
           bun install
           bun tauri build
         env:
-          RUSTFLAGS: ""
+          RUSTFLAGS: ''
           CARGO_INCREMENTAL: 0
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
-      - name: Build Tauri app for macOS (ARM64)
+      - name: build Tauri app for Windows
+        if: matrix.os == 'windows-latest'
+        run: |
+          bun install
+          bun tauri build
+        env:
+          RUSTFLAGS: ''
+          CARGO_INCREMENTAL: 0
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+
+      - name: Build Tauri app for macOS (Silicon)
         if: matrix.os == 'macos-latest'
         run: |
           bun install
           bun tauri build --bundles app,dmg --target aarch64-apple-darwin
         env:
-          RUSTFLAGS: ""
+          RUSTFLAGS: ''
           CARGO_INCREMENTAL: 0
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
@@ -97,13 +108,13 @@ jobs:
           bun tauri build --bundles app,dmg --target x86_64-apple-darwin
         env:
           # Override the target-cpu=native flag
-          RUSTFLAGS: "-C target-cpu=x86-64"
+          RUSTFLAGS: '-C target-cpu=x86-64'
           CARGO_INCREMENTAL: 0
           # Set C compiler for cross-compilation
-          CC_x86_64_apple_darwin: "clang -target x86_64-apple-darwin"
-          CXX_x86_64_apple_darwin: "clang++ -target x86_64-apple-darwin"
-          AR_x86_64_apple_darwin: "ar"
-          CARGO_TARGET_X86_64_APPLE_DARWIN_LINKER: "clang"
+          CC_x86_64_apple_darwin: 'clang -target x86_64-apple-darwin'
+          CXX_x86_64_apple_darwin: 'clang++ -target x86_64-apple-darwin'
+          AR_x86_64_apple_darwin: 'ar'
+          CARGO_TARGET_X86_64_APPLE_DARWIN_LINKER: 'clang'
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
@@ -133,8 +144,7 @@ jobs:
         with:
           toolchain: nightly
           cache-workspaces: src-tauri
-          rustflags: ""
-
+          rustflags: ''
 
       - name: setup JDK 17
         uses: actions/setup-java@v4
@@ -197,8 +207,7 @@ jobs:
         with:
           toolchain: nightly
           cache-workspaces: src-tauri
-          rustflags: ""
-
+          rustflags: ''
 
       - name: install iOS target
         run: rustup target add aarch64-apple-ios
