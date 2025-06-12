@@ -34,6 +34,9 @@ const createPrompt = ({ preferredName, location }: PromptParams) => {
     `The current date and time is ${new Date().toISOString()}.`,
     preferredName ? `The user's name is ${preferredName}.` : '',
     location.name ? `The user's location is ${location.name}${location.lat && location.lng ? ` (${location.lat}, ${location.lng})` : ''}.` : '',
+    location.name
+      ? `Please use units that are appropriate for the user's location. For example, if the user's location is in the United States, use miles and Fahrenheit and miles per hour. If the user's location is in Canada, use kilometers and Celsius and kilometers per hour.`
+      : '',
 
     // —— Live-data discipline ——
     `❖ You MIGHT have access to tools that give you access to real-time or external data. They also might be disabled.`,
