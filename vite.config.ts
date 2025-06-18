@@ -29,21 +29,21 @@ export default defineConfig({
         // Run the build script
         execSync('./scripts/build-flower.sh', { stdio: 'inherit' })
         
-        const flowerDistFile = path.resolve(__dirname, 'flower/intelligence/ts/dist/flowerintelligence.es.js')
+        const flowerDistFile = path.resolve(__dirname, 'flower/intelligence/ts/dist/flowerintelligence.bundled.es.js')
         
         // Create public directory structure
         const publicFlowerDir = path.resolve(__dirname, 'public/flower/intelligence/ts/dist')
         fs.mkdirSync(publicFlowerDir, { recursive: true })
         
-        // Copy the built file to public directory
+        // Copy the bundled file to public directory (for browser usage)
         if (fs.existsSync(flowerDistFile)) {
           fs.copyFileSync(
             flowerDistFile,
-            path.resolve(publicFlowerDir, 'flowerintelligence.es.js')
+            path.resolve(publicFlowerDir, 'flowerintelligence.bundled.es.js')
           )
           console.log('✅ Flower Intelligence built and copied to public directory')
         } else {
-          throw new Error('Flower Intelligence build failed - flowerintelligence.es.js not found')
+          throw new Error('Flower Intelligence build failed - flowerintelligence.bundled.es.js not found')
         }
       },
     },
