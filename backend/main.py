@@ -164,16 +164,18 @@ app = FastAPI(
     lifespan=combined_lifespan,
 )
 
-# Configure CORS using environment-based settings
 settings = get_settings()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins_list,
+    allow_origin_regex=settings.cors_origin_regex
+    if settings.cors_origin_regex
+    else None,
+    allow_origins=settings.cors_origins_list if not settings.cors_origin_regex else [],
     allow_credentials=settings.cors_allow_credentials,
     allow_methods=settings.cors_methods_list,
-    allow_headers=[settings.cors_allow_headers]
-    if settings.cors_allow_headers != "*"
-    else ["*"],
+    allow_headers=["*"]
+    if settings.cors_allow_headers == "*"
+    else [settings.cors_allow_headers],
     expose_headers=[settings.cors_expose_headers]
     if settings.cors_expose_headers
     else [],

@@ -12,6 +12,7 @@ class Settings(BaseSettings):
 
     # CORS settings
     cors_origins: str = "http://localhost:1420"
+    cors_origin_regex: str = ""
     cors_allow_credentials: bool = True
     cors_allow_methods: str = "GET,POST,PUT,DELETE,PATCH,OPTIONS"
     cors_allow_headers: str = "*"
