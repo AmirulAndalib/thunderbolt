@@ -1,3 +1,5 @@
+import { getSetting } from '@/dal'
+import { getThread, getThreadSchema, listThreads, listThreadsSchema } from '@/integrations/google/tools'
 import { ParsedEmail, Setting } from '@/types'
 import { invoke } from '@tauri-apps/api/core'
 import { tool } from 'ai'
@@ -11,7 +13,7 @@ type toolContext = {
 export const tools = {
   searchInbox: {
     verb: 'Searching the inbox...',
-    tool: ({ }: toolContext) =>
+    tool: ({}: toolContext) =>
       tool({
         description: `A tool for searching the user's inbox.
 
@@ -52,14 +54,14 @@ export const tools = {
             Message ID: ${getMessageIdFromParsedEmail(message)}
             Subject: ${getSubjectFromParsedEmail(message)}
             Body: ${message.clean_text}
-          `
+          `,
           )
         },
       }),
   },
   listMailboxes: {
     verb: 'Listing mailboxes...',
-    tool: ({ }: toolContext) =>
+    tool: ({}: toolContext) =>
       tool({
         description: "List all mailboxes in the user's inbox.",
         parameters: z.object({}),
@@ -70,18 +72,61 @@ export const tools = {
             ([name, count]) => `
           Mailbox: ${name}
           Count: ${count}
-        `
+        `,
           )
         },
       }),
   },
 }
 
-export const toolset = (toolContext: toolContext) =>
-  Object.entries(tools).reduce(
+export const toolset = async (toolContext: toolContext) => {
+  // Start with base tools
+  const baseTools = Object.entries(tools).reduce(
     (acc, [key, value]) => ({
       ...acc,
       [key]: value.tool(toolContext),
     }),
-    {} as Record<keyof typeof tools, (typeof tools)[keyof typeof tools]['tool']>
+    {} as Record<keyof typeof tools, (typeof tools)[keyof typeof tools]['tool']>,
   )
+
+  // Check if Google integration is enabled
+  try {
+    const googleEnabled = await getSetting('integrations_google_is_enabled')
+    const googleCredentials = await getSetting('integrations_google_credentials')
+
+    if (googleEnabled === 'true' && googleCredentials) {
+      // Add Google tools
+      return {
+        ...baseTools,
+        google_list_threads: tool({
+          description: 'List Google threads with optional filtering',
+          parameters: listThreadsSchema,
+          execute: async (params) => {
+            try {
+              const result = await listThreads(params)
+              return JSON.stringify(result, null, 2)
+            } catch (error: any) {
+              return `Error: ${error.message}`
+            }
+          },
+        }),
+        google_get_thread: tool({
+          description: 'Get a specific Google thread by ID',
+          parameters: getThreadSchema,
+          execute: async (params) => {
+            try {
+              const result = await getThread(params)
+              return JSON.stringify(result, null, 2)
+            } catch (error: any) {
+              return `Error: ${error.message}`
+            }
+          },
+        }),
+      }
+    }
+  } catch (error) {
+    console.error('Failed to check Google integration status:', error)
+  }
+
+  return baseTools
+}

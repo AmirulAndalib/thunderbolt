@@ -1,0 +1,353 @@
+import { AvailableTools } from '@/components/available-tools'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Button } from '@/components/ui/button'
+import { Card, CardAction, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
+import { Switch } from '@/components/ui/switch'
+import { getSetting, updateSetting } from '@/dal'
+import { configs as googleToolConfigs } from '@/integrations/google/tools'
+import { exchangeCodeForTokens, getUserInfo, GoogleUserInfo, OAuthTokens, redirectOAuthFlow } from '@/lib/auth'
+import { startOAuthFlowWebview } from '@/lib/oauth-webview'
+import { isTauri } from '@/lib/platform'
+import { Loader2 } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { useLocation, useNavigate } from 'react-router'
+
+type Integration = {
+  id: string
+  name: string
+  provider: string
+  connectLabel: string
+  icon: React.ReactNode
+  isEnabled: boolean
+  isConnected: boolean
+  userEmail?: string
+  credentials?: {
+    access_token: string
+    refresh_token: string
+    expires_at: number
+    profile?: {
+      email?: string
+      name?: string
+    }
+  }
+}
+
+const GoogleIcon = () => (
+  <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path
+      d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+      fill="#4285F4"
+    />
+    <path
+      d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+      fill="#34A853"
+    />
+    <path
+      d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
+      fill="#FBBC05"
+    />
+    <path
+      d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
+      fill="#EA4335"
+    />
+  </svg>
+)
+
+export default function IntegrationsPage() {
+  const location = useLocation()
+  const navigate = useNavigate()
+
+  const [integrations, setIntegrations] = useState<Integration[]>([])
+  const [loading, setLoading] = useState(true)
+  const [connecting, setConnecting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    loadIntegrations()
+  }, [])
+
+  // Handle OAuth callback when navigated back from /oauth/callback
+  useEffect(() => {
+    const oauth = (location.state as any)?.oauth
+    if (!oauth) return
+
+    const processCallback = async () => {
+      const {
+        code,
+        state: returnedState,
+        error: oauthError,
+      } = oauth as {
+        code?: string
+        state?: string
+        error?: string
+      }
+
+      if (oauthError) {
+        setError(oauthError)
+        // Clear state so we don't process again
+        navigate('.', { replace: true, state: null })
+        return
+      }
+
+      if (!code || !returnedState) return
+
+      const storedState = sessionStorage.getItem('oauth_state')
+      const provider = sessionStorage.getItem('oauth_provider') as 'google' | 'microsoft' | null
+      const codeVerifier = sessionStorage.getItem('oauth_verifier')
+
+      if (!provider || !codeVerifier || storedState !== returnedState) {
+        setError('OAuth validation failed — please try again.')
+        navigate('.', { replace: true, state: null })
+        return
+      }
+
+      try {
+        setConnecting(true)
+
+        const tokens: OAuthTokens = await exchangeCodeForTokens(provider, code, codeVerifier)
+        const userInfo: GoogleUserInfo = await getUserInfo(provider, tokens.access_token)
+
+        const credentials = {
+          access_token: tokens.access_token,
+          refresh_token: tokens.refresh_token || '',
+          expires_at: Date.now() + tokens.expires_in * 1000,
+          profile: {
+            email: userInfo.email,
+            name: userInfo.name,
+            picture: (userInfo as any).picture,
+          },
+        }
+
+        await updateSetting('integrations_google_credentials', JSON.stringify(credentials))
+        await updateSetting('integrations_google_is_enabled', 'true')
+
+        // Cleanup session storage
+        sessionStorage.removeItem('oauth_state')
+        sessionStorage.removeItem('oauth_provider')
+        sessionStorage.removeItem('oauth_verifier')
+
+        // Clear navigation state
+        navigate('.', { replace: true, state: null })
+
+        await loadIntegrations()
+      } catch (err: any) {
+        console.error('Failed to complete OAuth:', err)
+        setError(err.message || 'Failed to complete authentication')
+      } finally {
+        setConnecting(false)
+      }
+    }
+
+    processCallback()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.state])
+
+  const loadIntegrations = async () => {
+    setLoading(true)
+    try {
+      const isEnabled = await getSetting('integrations_google_is_enabled')
+      const credentials = await getSetting('integrations_google_credentials')
+
+      let parsedCredentials = null
+      let userEmail = undefined
+
+      if (credentials) {
+        try {
+          parsedCredentials = JSON.parse(credentials)
+          userEmail = parsedCredentials.profile?.email
+        } catch (e) {
+          console.error('Failed to parse credentials:', e)
+        }
+      }
+
+      setIntegrations([
+        {
+          id: 'google',
+          name: 'Google',
+          provider: 'google',
+          connectLabel: 'Connect Google',
+          icon: <GoogleIcon />,
+          isEnabled: isEnabled === 'true',
+          isConnected: !!parsedCredentials,
+          userEmail,
+          credentials: parsedCredentials,
+        },
+      ])
+    } catch (error) {
+      console.error('Failed to load integrations:', error)
+      console.error('Failed to load integrations')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleConnect = async (integration: Integration) => {
+    if (integration.provider === 'google') {
+      setConnecting(true)
+      setError(null)
+
+      try {
+        console.log('Starting Google OAuth flow...')
+
+        if (isTauri()) {
+          const result = await startOAuthFlowWebview('google')
+
+          if (!result) {
+            // User cancelled the flow
+            return
+          }
+
+          const { tokens, userInfo } = result
+
+          const credentials = {
+            access_token: tokens.access_token,
+            refresh_token: tokens.refresh_token || '',
+            expires_at: Date.now() + tokens.expires_in * 1000,
+            profile: {
+              email: userInfo.email,
+              name: userInfo.name,
+              picture: userInfo.picture,
+            },
+          }
+
+          await updateSetting('integrations_google_credentials', JSON.stringify(credentials))
+          await updateSetting('integrations_google_is_enabled', 'true')
+
+          console.log(`Connected successfully as ${userInfo.email}`)
+
+          await loadIntegrations()
+        } else {
+          // For web: perform full redirect and let the callback route handle the rest
+          redirectOAuthFlow('google')
+        }
+      } catch (error: any) {
+        console.error('OAuth error:', error)
+        setError(error.message || 'Failed to complete authentication')
+      } finally {
+        // For web we never reach this point because the page is redirected.
+        if (isTauri()) {
+          setConnecting(false)
+        }
+      }
+    }
+  }
+
+  const handleDisconnect = async (integration: Integration) => {
+    try {
+      await updateSetting('integrations_google_credentials', '')
+      await updateSetting('integrations_google_is_enabled', 'false')
+
+      console.log(`Disconnected from ${integration.name}`)
+
+      await loadIntegrations()
+    } catch (error) {
+      console.error('Failed to disconnect integration')
+    }
+  }
+
+  const handleToggleEnabled = async (integration: Integration, enabled: boolean) => {
+    try {
+      await updateSetting(`integrations_${integration.provider}_is_enabled`, enabled.toString())
+
+      setIntegrations((prev) => prev.map((i) => (i.id === integration.id ? { ...i, isEnabled: enabled } : i)))
+
+      console.log(`${integration.name} integration ${enabled ? 'enabled' : 'disabled'}`)
+    } catch (error) {
+      console.error('Failed to update integration')
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-96">
+        <div className="text-muted-foreground">Loading integrations...</div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="max-w-[760px] mx-auto p-4">
+      <div className="mb-6">
+        <h1 className="text-4xl font-bold tracking-tight mb-2 text-primary">Integrations</h1>
+      </div>
+
+      {error && (
+        <Alert variant="destructive" className="mb-4">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+
+      <div className="grid gap-4">
+        {integrations.map((integration) => (
+          <Card key={integration.id} className="border border-border shadow-sm">
+            <CardHeader className="grid grid-cols-[1fr_auto] items-center gap-x-4 gap-y-0 py-2">
+              <div className="flex items-center gap-2">
+                {integration.icon}
+                <CardTitle className="text-base">
+                  {integration.isConnected && integration.userEmail ? integration.userEmail : integration.name}
+                </CardTitle>
+              </div>
+
+              <CardAction className="flex items-center gap-2">
+                <Switch
+                  checked={integration.isEnabled}
+                  onCheckedChange={(checked) => handleToggleEnabled(integration, checked)}
+                  disabled={!integration.isConnected}
+                />
+              </CardAction>
+            </CardHeader>
+
+            {!integration.isConnected && (
+              <CardContent>
+                <Button onClick={() => handleConnect(integration)} className="w-full" disabled={connecting}>
+                  {connecting ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Connecting...
+                    </>
+                  ) : (
+                    integration.connectLabel
+                  )}
+                </Button>
+              </CardContent>
+            )}
+
+            {integration.isConnected && integration.isEnabled && integration.provider === 'google' && (
+              <CardContent className="border-t pt-0">
+                <AvailableTools
+                  className="pt-4"
+                  tools={googleToolConfigs.map((config) => ({
+                    name: config.name,
+                    description: config.description,
+                  }))}
+                />
+              </CardContent>
+            )}
+
+            {/* If the account is connected but the integration is disabled, we still want the visual divider */}
+            {integration.isConnected && !integration.isEnabled && <CardContent className="border-t p-0" />}
+
+            {integration.isConnected && (
+              <CardFooter>
+                <Button variant="outline" size="sm" onClick={() => handleDisconnect(integration)} className="ml-auto">
+                  Disconnect
+                </Button>
+              </CardFooter>
+            )}
+          </Card>
+        ))}
+
+        {integrations.length === 0 && (
+          <Card className="border-dashed border-2 border-muted-foreground/25 shadow-none">
+            <CardContent className="flex flex-col items-center justify-center py-8">
+              <div className="text-muted-foreground text-center">
+                <p className="mb-2">No integrations available</p>
+                <p className="text-sm">Check back later for new integrations</p>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+      </div>
+    </div>
+  )
+}

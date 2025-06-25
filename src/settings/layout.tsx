@@ -14,7 +14,7 @@ import {
   SidebarTrigger,
   useSidebar,
 } from '@/components/ui/sidebar'
-import { ArrowLeft, Bot, Server, SlidersHorizontal } from 'lucide-react'
+import { ArrowLeft, Bot, Plug, Server, SlidersHorizontal } from 'lucide-react'
 import { Link, Outlet, useLocation } from 'react-router'
 
 export default function SettingsLayout() {
@@ -30,7 +30,10 @@ export default function SettingsLayout() {
             <SidebarGroup>
               <SidebarGroupContent className="flex justify-between w-full flex-1">
                 <SidebarTrigger className="cursor-pointer" />
-                <SidebarMenuButton asChild className="w-fit pr-0 pl-0 aspect-square items-center justify-center cursor-pointer">
+                <SidebarMenuButton
+                  asChild
+                  className="w-fit pr-0 pl-0 aspect-square items-center justify-center cursor-pointer"
+                >
                   <Link to="/">
                     <ArrowLeft className="size-5" />
                   </Link>
@@ -61,6 +64,15 @@ export default function SettingsLayout() {
                   </SidebarMenuItem>
 
                   <SidebarMenuItem>
+                    <SidebarMenuButton asChild isActive={currentPath.includes('/settings/integrations')}>
+                      <Link to="/settings/integrations">
+                        <Plug className="size-4" />
+                        <span>Integrations</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+
+                  <SidebarMenuItem>
                     <SidebarMenuButton asChild isActive={currentPath.includes('/settings/mcp-servers')}>
                       <Link to="/settings/mcp-servers">
                         <Server className="size-4" />
@@ -68,7 +80,6 @@ export default function SettingsLayout() {
                       </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
-
                 </SidebarMenu>
               </SidebarGroupContent>
             </SidebarGroup>

@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Thunderbolt - OAuth Callback</title>
+    <style>
+      body {
+        font-family:
+          system-ui,
+          -apple-system,
+          sans-serif;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 100vh;
+        margin: 0;
+        background: #0a0a0a;
+        color: #fafafa;
+      }
+      .container {
+        text-align: center;
+        padding: 2rem;
+      }
+      h1 {
+        font-size: 1.5rem;
+        margin-bottom: 1rem;
+      }
+      p {
+        color: #888;
+        margin-bottom: 2rem;
+      }
+      .spinner {
+        border: 3px solid #333;
+        border-top: 3px solid #3b82f6;
+        border-radius: 50%;
+        width: 40px;
+        height: 40px;
+        animation: spin 1s linear infinite;
+        margin: 0 auto;
+      }
+      @keyframes spin {
+        0% {
+          transform: rotate(0deg);
+        }
+        100% {
+          transform: rotate(360deg);
+        }
+      }
+      .error {
+        color: #ef4444;
+        margin-top: 1rem;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>Completing Authentication...</h1>
+      <p>Please wait while we complete the authentication process.</p>
+      <div class="spinner"></div>
+      <div id="error" class="error" style="display: none"></div>
+    </div>
+
+    <script>
+      /*
+      Handle the OAuth redirect inside both web and Tauri contexts.
+
+      1. In a Tauri WebviewWindow we can communicate with the main window via
+         the global `__TAURI__.event` API. We emit a custom `oauth-callback`
+         event carrying either the `code`+`state` information or an `error`.
+
+      2. In a regular browser (non-Tauri) environment we fall back to
+         `window.opener.postMessage`, which is what our web OAuth flow
+         already expects.
+
+      After delivering the payload we attempt to close the window to prevent
+      unwanted navigation or lingering pop-ups.
+    */
+      // Parse the URL parameters
+      const params = new URLSearchParams(window.location.search)
+      const code = params.get('code')
+      const state = params.get('state')
+      const error = params.get('error')
+      const errorDescription = params.get('error_description')
+
+      // Function to send message to Thunderbolt
+      function sendToThunderbolt(data) {
+        // Prefer the Tauri event API if available (desktop app flow)
+        if (window.__TAURI__?.event?.emit) {
+          window.__TAURI__.event.emit('oauth-callback', data)
+          return
+        }
+
+        // Fallback to postMessage for web flow
+        if (window.opener && !window.opener.closed) {
+          window.opener.postMessage(data, '*')
+          sendAndClose()
+          return
+        }
+
+        // As a last resort just close – the user will need to retry
+        sendAndClose()
+      }
+
+      // Helper: attempt to close the current window after a short delay so
+      // providers like Chrome have time to deliver the postMessage.
+      function sendAndClose() {
+        // Some browsers block immediate window.close() calls if not triggered
+        // by a direct user gesture. We therefore delay the close slightly.
+        setTimeout(() => {
+          try {
+            window.close()
+          } catch {
+            /* ignore */
+          }
+        }, 100)
+      }
+
+      // Handle the callback
+      if (error) {
+        document.getElementById('error').textContent = errorDescription || error
+        document.getElementById('error').style.display = 'block'
+        document.querySelector('.spinner').style.display = 'none'
+
+        sendToThunderbolt({
+          type: 'oauth-callback',
+          error: errorDescription || error,
+        })
+      } else if (code && state) {
+        sendToThunderbolt({
+          type: 'oauth-callback',
+          code: code,
+          state: state,
+        })
+
+        // Update UI
+        document.querySelector('h1').textContent = 'Authentication Successful!'
+        document.querySelector('p').textContent = 'You can close this window and return to Thunderbolt.'
+        document.querySelector('.spinner').style.display = 'none'
+      } else {
+        document.getElementById('error').textContent = 'Invalid callback parameters'
+        document.getElementById('error').style.display = 'block'
+        document.querySelector('.spinner').style.display = 'none'
+      }
+    </script>
+  </body>
+</html>

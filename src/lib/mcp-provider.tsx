@@ -15,7 +15,7 @@ interface MCPServerConnection {
   enabled: boolean
 }
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
+ 
 interface MCPContextType {
   servers: MCPServerConnection[]
   getEnabledClients: () => MCPClient[]

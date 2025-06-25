@@ -10,6 +10,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from auth import google_router, microsoft_router
 from config import Settings
 from flower_auth import get_flower_api_key
 from mcp_tools.server import mcp
@@ -395,3 +396,12 @@ async def proxy_endpoint(
 
     # Proxy the request
     return await proxy_service.proxy_request(request, actual_path, config)
+
+
+# ---------------------------------------------------------------------------
+# Authentication routers (/auth/google/*, /auth/microsoft/*)
+# ---------------------------------------------------------------------------
+
+
+app.include_router(google_router)
+app.include_router(microsoft_router)

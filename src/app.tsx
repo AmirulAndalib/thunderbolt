@@ -3,12 +3,14 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router'
 
 import ChatDetailPage from '@/chats/detail'
 import ChatLayout from '@/chats/layout2'
+import OAuthCallback from '@/components/oauth-callback'
 import { SidebarProvider } from '@/components/ui/sidebar'
 import { useMcpSync } from '@/hooks/use-mcp-sync'
 import { ThemeProvider } from '@/lib/theme-provider'
 import AccountsSettingsPage from '@/settings/accounts'
 import DevSettingsPage from '@/settings/dev-settings'
 import { default as Settings } from '@/settings/index'
+import IntegrationsPage from '@/settings/integrations'
 import McpServersPage from '@/settings/mcp-servers'
 import ModelsPage from '@/settings/models'
 import PreferencesSettingsPage from '@/settings/preferences'
@@ -54,6 +56,7 @@ function AppContent({ initData }: { initData: InitData }) {
             <Route path="preferences" element={<PreferencesSettingsPage />} />
             <Route path="models" element={<ModelsPage />} />
             <Route path="mcp-servers" element={<McpServersPage />} />
+            <Route path="integrations" element={<IntegrationsPage />} />
             <Route path="accounts" element={<AccountsSettingsPage />} />
             <Route path="thunderbolt-bridge" element={<ThunderboltBridgeSettingsPage />} />
             <Route path="dev-settings" element={<DevSettingsPage />} />
@@ -62,6 +65,9 @@ function AppContent({ initData }: { initData: InitData }) {
           <Route path="ui-kit" element={<UiKitPage />} />
           <Route path="devtools" element={<DevToolsPage />} />
         </Route>
+        
+        {/* OAuth callback route */}
+        <Route path="/oauth/callback" element={<OAuthCallback />} />
       </Routes>
     </BrowserRouter>
   )

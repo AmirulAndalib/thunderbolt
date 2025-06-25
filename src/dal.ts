@@ -2,7 +2,16 @@ import { getDefaultCloudUrl } from '@/lib/config'
 import { desc, eq, notExists } from 'drizzle-orm'
 import { v7 as uuidv7 } from 'uuid'
 import { DatabaseSingleton } from './db/singleton'
-import { accountsTable, chatMessagesTable, chatThreadsTable, emailMessagesTable, emailThreadsTable, mcpServersTable, modelsTable, settingsTable } from './db/tables'
+import {
+  accountsTable,
+  chatMessagesTable,
+  chatThreadsTable,
+  emailMessagesTable,
+  emailThreadsTable,
+  mcpServersTable,
+  modelsTable,
+  settingsTable,
+} from './db/tables'
 import { EmailThreadWithMessagesAndAddresses, type Model } from './types'
 
 export const seedAccounts = async () => {
@@ -131,7 +140,12 @@ export const getSelectedModel = async (): Promise<Model> => {
   const model = await db
     .select()
     .from(modelsTable)
-    .where(eq(modelsTable.id, db.select({ value: settingsTable.value }).from(settingsTable).where(eq(settingsTable.key, 'selected_model'))))
+    .where(
+      eq(
+        modelsTable.id,
+        db.select({ value: settingsTable.value }).from(settingsTable).where(eq(settingsTable.key, 'selected_model')),
+      ),
+    )
     .get()
 
   if (model?.id) {
@@ -167,7 +181,9 @@ export const getOrCreateChatThread = async (isEncrypted: boolean = false): Promi
   const emptyThreads = await db
     .select({ id: chatThreadsTable.id })
     .from(chatThreadsTable)
-    .where(notExists(db.select().from(chatMessagesTable).where(eq(chatMessagesTable.chatThreadId, chatThreadsTable.id))))
+    .where(
+      notExists(db.select().from(chatMessagesTable).where(eq(chatMessagesTable.chatThreadId, chatThreadsTable.id))),
+    )
     .limit(1)
 
   if (emptyThreads.length > 0) {
@@ -181,7 +197,9 @@ export const getOrCreateChatThread = async (isEncrypted: boolean = false): Promi
   return chatThreadId
 }
 
-export const getEmailThreadByIdWithMessages = async (emailThreadId: string): Promise<EmailThreadWithMessagesAndAddresses | null> => {
+export const getEmailThreadByIdWithMessages = async (
+  emailThreadId: string,
+): Promise<EmailThreadWithMessagesAndAddresses | null> => {
   const db = DatabaseSingleton.instance.db
   const thread = await db.select().from(emailThreadsTable).where(eq(emailThreadsTable.id, emailThreadId)).get()
 
@@ -202,7 +220,9 @@ export const getEmailThreadByIdWithMessages = async (emailThreadId: string): Pro
   return { ...thread, messages }
 }
 
-export const getEmailThreadByMessageImapIdWithMessages = async (imapId: string): Promise<EmailThreadWithMessagesAndAddresses | null> => {
+export const getEmailThreadByMessageImapIdWithMessages = async (
+  imapId: string,
+): Promise<EmailThreadWithMessagesAndAddresses | null> => {
   const db = DatabaseSingleton.instance.db
   const message = await db.select().from(emailMessagesTable).where(eq(emailMessagesTable.imapId, imapId)).get()
 
@@ -228,7 +248,9 @@ export const getEmailThreadByMessageImapIdWithMessages = async (imapId: string):
   return { ...thread, messages }
 }
 
-export const getEmailThreadByMessageIdWithMessages = async (emailMessageId: string): Promise<EmailThreadWithMessagesAndAddresses | null> => {
+export const getEmailThreadByMessageIdWithMessages = async (
+  emailMessageId: string,
+): Promise<EmailThreadWithMessagesAndAddresses | null> => {
   const db = DatabaseSingleton.instance.db
   const message = await db.select().from(emailMessagesTable).where(eq(emailMessagesTable.id, emailMessageId)).get()
 
@@ -252,4 +274,28 @@ export const getEmailThreadByMessageIdWithMessages = async (emailMessageId: stri
   })
 
   return { ...thread, messages }
+}
+
+/**
+ * Get a setting value from the settings table
+ * @param key The setting key to retrieve
+ * @returns The setting value or null if not found
+ */
+export const getSetting = async (key: string, defaultValue: string | null = null): Promise<string | null> => {
+  const db = DatabaseSingleton.instance.db
+  const setting = await db.select().from(settingsTable).where(eq(settingsTable.key, key)).get()
+  return setting?.value || defaultValue
+}
+
+/**
+ * Update or create a setting in the settings table
+ * @param key The setting key to update
+ * @param value The new value for the setting
+ */
+export const updateSetting = async (key: string, value: string): Promise<void> => {
+  const db = DatabaseSingleton.instance.db
+  await db.insert(settingsTable).values({ key, value }).onConflictDoUpdate({
+    target: settingsTable.key,
+    set: { value },
+  })
 }

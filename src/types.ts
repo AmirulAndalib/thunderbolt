@@ -135,6 +135,10 @@ export type ToolConfig = {
   name: string
   description: string
   verb: string
-  parameters: z.ZodObject<any>
+  parameters: z.ZodObject<any, any>
   execute: (params: any) => Promise<any>
+}
+
+export type AuthProviderBackendConfig = {
+  client_id: string
 }

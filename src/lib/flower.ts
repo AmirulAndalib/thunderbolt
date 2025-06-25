@@ -1,5 +1,3 @@
-/// <reference types="@flwr/flwr" />
-
 import { DatabaseSingleton } from '@/db/singleton'
 import { settingsTable } from '@/db/tables'
 import { eq } from 'drizzle-orm'
@@ -74,7 +72,7 @@ export async function chatWithFlower(
     stream?: boolean
     encrypt?: boolean
     onStreamEvent?: (event: { chunk: string }) => void
-  } = {}
+  } = {},
 ): Promise<any> {
   const fi = await initializeFlowerIntelligence()
 

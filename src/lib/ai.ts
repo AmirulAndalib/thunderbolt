@@ -20,7 +20,7 @@ import {
 import { eq } from 'drizzle-orm'
 import { createFlower, isFlowerModel } from './ai-providers/flower'
 import { getCloudUrl } from './config'
-import { createToolset, tools } from './tools'
+import { createToolset, getAvailableTools } from './tools'
 
 export type ToolInvocationWithResult<T = object> = ToolInvocation & {
   result: T
@@ -219,8 +219,9 @@ export const aiFetchStreamingResponse = async ({
     let toolset: ToolSet = {}
 
     if (supportsTools) {
+      const availableTools = await getAvailableTools()
       toolset = {
-        ...createToolset(tools),
+        ...createToolset(availableTools),
       }
 
       // Add MCP tools if persistent client is available

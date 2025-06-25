@@ -7,6 +7,12 @@ class Settings(BaseSettings):
     flower_mgmt_key: str = ""  # Flower management API key
     flower_proj_id: str = ""  # Flower project ID
 
+    # OAuth Settings
+    google_client_id: str = ""  # Google OAuth client ID
+    google_client_secret: str = ""  # Google OAuth client secret
+    microsoft_client_id: str = ""  # Microsoft OAuth client ID (future)
+    microsoft_client_secret: str = ""  # Microsoft OAuth client secret (future)
+
     # General settings
     log_level: str = "INFO"  # Default log level
 

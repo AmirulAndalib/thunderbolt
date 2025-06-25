@@ -1,6 +1,6 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
-  "identifier": "default",
+  "identifier": "main",
   "description": "Capability for the main window",
   "windows": ["main"],
   "permissions": [
@@ -11,6 +11,10 @@
     "core:window:allow-show",
     "core:window:allow-set-focus",
     "core:window:allow-set-skip-taskbar",
+    "core:window:allow-create",
+    "core:window:allow-close",
+    "core:webview:allow-create-webview-window",
+    "core:window:allow-destroy",
     "process:allow-exit",
     {
       "identifier": "http:default",
@@ -26,6 +30,15 @@
         },
         {
           "url": "https://router.huggingface.co"
+        },
+        {
+          "url": "https://accounts.google.com"
+        },
+        {
+          "url": "https://www.googleapis.com"
+        },
+        {
+          "url": "http://localhost:8000"
         }
       ]
     },
@@ -39,5 +52,8 @@
         }
       ]
     }
-  ]
+  ],
+  "remote": {
+    "urls": ["http://localhost:1420/*"]
+  }
 }

@@ -1,17 +1,26 @@
+import { AvailableTools } from '@/components/available-tools'
+import { StatusIndicator } from '@/components/status-indicator'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Switch } from '@/components/ui/switch'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { useDatabase } from '@/hooks/use-database'
 import { mcpServersTable } from '@/db/tables'
+import { useDatabase } from '@/hooks/use-database'
 import { useMcpSync } from '@/hooks/use-mcp-sync'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { eq } from 'drizzle-orm'
-import { Check, Copy, Globe, Plus, Square, Trash2, X } from 'lucide-react'
+import { Check, Copy, Globe, Plus, Trash2, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { v7 as uuidv7 } from 'uuid'
 
@@ -327,7 +336,13 @@ export default function McpServersPage() {
             <div className="grid gap-4 py-4">
               <div className="grid gap-2">
                 <Label htmlFor="url">Server URL</Label>
-                <Input id="url" placeholder="http://localhost:8000/mcp/" value={newServerUrl} onChange={(e) => setNewServerUrl(e.target.value)} onKeyDown={handleUrlKeyDown} />
+                <Input
+                  id="url"
+                  placeholder="http://localhost:8000/mcp/"
+                  value={newServerUrl}
+                  onChange={(e) => setNewServerUrl(e.target.value)}
+                  onKeyDown={handleUrlKeyDown}
+                />
               </div>
 
               {newServerUrl && (
@@ -364,7 +379,9 @@ export default function McpServersPage() {
                     <X className="h-4 w-4" />
                     <span className="font-medium">Connection failed</span>
                   </div>
-                  <p className="text-sm text-red-600 mt-1">Could not connect to the MCP server. Please check the URL and try again.</p>
+                  <p className="text-sm text-red-600 mt-1">
+                    Could not connect to the MCP server. Please check the URL and try again.
+                  </p>
                 </div>
               )}
             </div>
@@ -393,7 +410,9 @@ export default function McpServersPage() {
                   <div className="flex items-center gap-3 min-w-0 flex-1">
                     <Tooltip>
                       <TooltipTrigger asChild>
-                        <div className={`w-3 h-3 rounded-full flex-shrink-0 ${status === 'connected' ? 'bg-green-500' : status === 'connecting' ? 'bg-yellow-500' : 'bg-red-500'}`} />
+                        <div>
+                          <StatusIndicator status={status as any} size="md" />
+                        </div>
                       </TooltipTrigger>
                       <TooltipContent side="bottom">
                         <p>{getStatusTooltipText(status)}</p>
@@ -425,7 +444,11 @@ export default function McpServersPage() {
                                 }}
                                 disabled={copiedUrl === server.url}
                               >
-                                {copiedUrl === server.url ? <Check className="h-3 w-3 text-muted-foreground" /> : <Copy className="h-3 w-3" />}
+                                {copiedUrl === server.url ? (
+                                  <Check className="h-3 w-3 text-muted-foreground" />
+                                ) : (
+                                  <Copy className="h-3 w-3" />
+                                )}
                               </Button>
                             </div>
                           </PopoverContent>
@@ -445,14 +468,23 @@ export default function McpServersPage() {
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <div>
-                          <Switch checked={isEnabled} onCheckedChange={(checked) => toggleServerMutation.mutate({ id: server.id, enabled: checked })} className="cursor-pointer" />
+                          <Switch
+                            checked={isEnabled}
+                            onCheckedChange={(checked) =>
+                              toggleServerMutation.mutate({ id: server.id, enabled: checked })
+                            }
+                            className="cursor-pointer"
+                          />
                         </div>
                       </TooltipTrigger>
                       <TooltipContent side="bottom">
                         <p>{isEnabled ? 'Disable server' : 'Enable server'}</p>
                       </TooltipContent>
                     </Tooltip>
-                    <Popover open={deleteConfirmOpen === server.id} onOpenChange={(open) => setDeleteConfirmOpen(open ? server.id : null)}>
+                    <Popover
+                      open={deleteConfirmOpen === server.id}
+                      onOpenChange={(open) => setDeleteConfirmOpen(open ? server.id : null)}
+                    >
                       <PopoverTrigger asChild>
                         <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
                           <Trash2 className="h-4 w-4" />
@@ -462,7 +494,9 @@ export default function McpServersPage() {
                         <div className="space-y-3">
                           <div>
                             <h4 className="font-medium">Remove Server</h4>
-                            <p className="text-sm text-muted-foreground">Are you sure you want to remove this MCP server? This action cannot be undone.</p>
+                            <p className="text-sm text-muted-foreground">
+                              Are you sure you want to remove this MCP server? This action cannot be undone.
+                            </p>
                           </div>
                           <div className="flex justify-end gap-2">
                             <Button variant="outline" size="sm" onClick={() => setDeleteConfirmOpen(null)}>
@@ -480,26 +514,13 @@ export default function McpServersPage() {
               </CardHeader>
               {isEnabled && tools.length > 0 && (
                 <CardContent className="pt-0 border-t">
-                  <div className="space-y-4 pt-4">
-                    <div className="flex items-center gap-2">
-                      <div className="text-sm font-medium text-foreground">Available Tools</div>
-                      <div className="text-xs text-muted-foreground bg-muted px-2 py-1 rounded-full">
-                        {tools.length} tool{tools.length !== 1 ? 's' : ''}
-                      </div>
-                    </div>
-                    <div className="grid gap-3">
-                      {tools.map((tool) => (
-                        <div key={tool} className="flex items-center space-x-3">
-                          {selectedTools[server.id]?.[tool] ?? true ? (
-                            <Check className="h-4 w-4 text-primary cursor-default flex-shrink-0" />
-                          ) : (
-                            <Square className="h-4 w-4 text-muted-foreground cursor-default flex-shrink-0" />
-                          )}
-                          <span className="text-sm cursor-default flex-1 font-normal">{tool}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
+                  <AvailableTools
+                    className="pt-4"
+                    tools={tools.map((tool) => ({
+                      name: tool,
+                      enabled: selectedTools[server.id]?.[tool] ?? true,
+                    }))}
+                  />
                 </CardContent>
               )}
             </Card>
@@ -513,7 +534,9 @@ export default function McpServersPage() {
                 <Plus className="h-6 w-6 text-muted-foreground" />
               </div>
               <h3 className="font-medium text-foreground mb-1">No MCP servers configured</h3>
-              <p className="text-sm text-muted-foreground mb-4">Get started by adding your first MCP server connection.</p>
+              <p className="text-sm text-muted-foreground mb-4">
+                Get started by adding your first MCP server connection.
+              </p>
               <Button onClick={() => setIsAddDialogOpen(true)} variant="outline">
                 <Plus className="h-4 w-4 mr-2" />
                 Add Server
