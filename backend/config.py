@@ -1,3 +1,5 @@
+from functools import lru_cache
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -7,6 +9,9 @@ class Settings(BaseSettings):
     flower_mgmt_key: str = ""  # Flower management API key
     flower_proj_id: str = ""  # Flower project ID
     exa_api_key: str = ""  # Exa AI API key
+
+    # Health Check Configuration
+    monitoring_token: str = ""  # Secret token for health check endpoints
 
     # OAuth Settings
     google_client_id: str = ""  # Google OAuth client ID
@@ -46,3 +51,9 @@ class Settings(BaseSettings):
             for method in self.cors_allow_methods.split(",")
             if method.strip()
         ]
+
+
+@lru_cache
+def get_settings() -> Settings:
+    """Return a cached Settings instance to avoid re-parsing env vars."""
+    return Settings()
