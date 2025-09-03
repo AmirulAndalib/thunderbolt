@@ -16,7 +16,7 @@ name = "thunderbolt_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [features]
-default = ["libsql", "native_fetch"]
+default = []
 libsql = ["dep:thunderbolt-libsql"]
 email = ["dep:thunderbolt-email", "dep:thunderbolt-imap-client", "dep:thunderbolt-imap-sync", "libsql"]
 embeddings = ["dep:thunderbolt-embeddings"]

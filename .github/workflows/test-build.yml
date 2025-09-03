@@ -18,20 +18,20 @@ on:
 jobs:
   build:
     runs-on: ${{ fromJSON('{"windows-arm":"windows-latest","windows-x64":"windows-latest","macos-silicon":"macos-latest","macos-intel":"macos-latest","linux":"ubuntu-22.04"}')[inputs.platform] }}
-    
+
     steps:
       - uses: actions/checkout@v4
-      
+
       - uses: actions/setup-node@v4
         with:
           node-version: 'lts/*'
-      
+
       - uses: oven-sh/setup-bun@v2
-      
-      - name: Install nightly toolchain
+
+      - name: Install stable toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
-          toolchain: nightly
+          toolchain: stable
           cache: false
           rustflags: ''
 
@@ -44,7 +44,7 @@ jobs:
       - name: Build
         run: |
           bun install
-          
+
           case "${{ inputs.platform }}" in
             "linux")
               bun tauri build

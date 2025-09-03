@@ -10,6 +10,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:libsql": "tauri dev -- --features libsql",
     "analyze": "vite analyze",
     "db": "drizzle-kit",
     "lint": "eslint src --ext .ts,.tsx",

@@ -34,10 +34,10 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@4bc047ad259df6fc24a6fb9b0667a7a675313a4a # v2.0.1
 
-      - name: Install Rust nightly toolchain
+      - name: Install Rust stable toolchain
         uses: actions-rust-lang/setup-rust-toolchain@1fbea72663f6d4c03efaab13560c8a24cfd2a7cc # v1.9.0
         with:
-          toolchain: nightly
+          toolchain: stable
           cache: false
           rustflags: ''
 
