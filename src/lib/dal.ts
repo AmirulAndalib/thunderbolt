@@ -14,12 +14,13 @@ import {
   tasksTable,
 } from '../db/tables'
 import type {
+  AutomationRun,
   EmailThreadWithMessagesAndAddresses,
   Model,
   Prompt,
+  Task,
   ThunderboltUIMessage,
   UIMessageMetadata,
-  Task,
 } from '../types'
 import { convertUIMessageToDbChatMessage } from './utils'
 
@@ -402,20 +403,33 @@ export const getAllPrompts = async (searchQuery?: string): Promise<Prompt[]> => 
 }
 
 /**
- * Returns the automation prompt that triggered a chat thread, if any.
+ * Returns information about the automation that triggered a chat thread, if any.
  */
-export const getTriggerPromptForThread = async (threadId: string): Promise<Prompt | null> => {
+export const getTriggerPromptForThread = async (threadId: string): Promise<AutomationRun | null> => {
   const db = DatabaseSingleton.instance.db
 
-  // Fetch the associated prompt in a single query via join
+  // Fetch the associated prompt and thread info in a single query via join
   const result = await db
-    .select({ prompt: promptsTable })
+    .select({
+      prompt: promptsTable,
+      wasTriggeredByAutomation: chatThreadsTable.wasTriggeredByAutomation,
+      triggeredBy: chatThreadsTable.triggeredBy,
+    })
     .from(chatThreadsTable)
     .leftJoin(promptsTable, eq(chatThreadsTable.triggeredBy, promptsTable.id))
     .where(eq(chatThreadsTable.id, threadId))
     .get()
 
-  return result?.prompt ?? null
+  if (!result) return null
+
+  const wasTriggeredByAutomation = result.wasTriggeredByAutomation === 1
+  const isAutomationDeleted = wasTriggeredByAutomation && !result.prompt
+
+  return {
+    prompt: result.prompt,
+    wasTriggeredByAutomation,
+    isAutomationDeleted,
+  }
 }
 
 // ============================================================================
