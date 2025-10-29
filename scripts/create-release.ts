@@ -244,9 +244,9 @@ const updateVersionFiles = (version: string, platform: string) => {
   if (platform === 'all') {
     console.log('\n  ℹ️  Note: Platform-specific versions handled by respective workflows:')
     console.log('     • iOS: project.yml updated by ios-release.yml')
-    console.log('     • Android: versionCode incremented by android-release.yml')
+    console.log('     • Android: versionCode calculated from git commit count')
   } else if (platform === 'android') {
-    console.log('\n  ℹ️  Note: Android versionCode will be incremented by android-release.yml')
+    console.log('\n  ℹ️  Note: Android versionCode will be calculated from git commit count')
   }
 }
 
