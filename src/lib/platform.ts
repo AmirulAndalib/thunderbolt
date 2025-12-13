@@ -99,10 +99,11 @@ export const getCapabilities = (): Promise<Capabilities> => fetchCapabilities()
  * Note: this is asynchronous because we might need to query the backend once.
  */
 export const getDatabaseType = async (): Promise<DatabaseType> => {
-  if (!isTauri()) return 'wa-sqlite'
+  return 'powersync'
+  // if (!isTauri()) return 'wa-sqlite'
 
-  const { libsql } = await getCapabilities()
-  return libsql ? 'libsql-tauri' : 'wa-sqlite'
+  // const { libsql } = await getCapabilities()
+  // return libsql ? 'libsql-tauri' : 'wa-sqlite'
 }
 
 /**

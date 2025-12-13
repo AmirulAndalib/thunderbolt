@@ -224,10 +224,16 @@ export const hasSetting = async (key: string): Promise<boolean> => {
 /**
  * Create a setting only if it doesn't already exist
  * Does nothing if the setting already exists (preserves existing value)
+ *
+ * Note: Uses SELECT-then-INSERT pattern instead of onConflictDoNothing
+ * for PowerSync compatibility (views don't support UPSERT).
  */
 export const createSetting = async (key: string, value: string | null): Promise<void> => {
   const db = DatabaseSingleton.instance.db
-  await db.insert(settingsTable).values({ key, value }).onConflictDoNothing()
+  const existing = await db.select().from(settingsTable).where(eq(settingsTable.key, key)).get()
+  if (!existing) {
+    await db.insert(settingsTable).values({ key, value })
+  }
 }
 
 /**
@@ -285,18 +291,25 @@ export const updateSettings = async (
     return
   }
 
-  // Single batch upsert for value updates
-  const values = entries.map(([key, value]) => prepareSettingRow(key, value, options.recomputeHash ?? false))
+  // Use SELECT-then-INSERT/UPDATE pattern for PowerSync compatibility
+  // (views don't support UPSERT)
+  await db.transaction(async (tx) => {
+    await Promise.all(
+      entries.map(async ([key, value]) => {
+        const existing = await tx.select().from(settingsTable).where(eq(settingsTable.key, key)).get()
+        const row = prepareSettingRow(key, value, options.recomputeHash ?? false)
 
-  await db
-    .insert(settingsTable)
-    .values(values)
-    .onConflictDoUpdate({
-      target: settingsTable.key,
-      set: options.recomputeHash
-        ? { value: sql`excluded.value`, defaultHash: sql`excluded.default_hash` }
-        : { value: sql`excluded.value` },
-    })
+        if (existing) {
+          const setFields = options.recomputeHash
+            ? { value: row.value, defaultHash: row.defaultHash }
+            : { value: row.value }
+          await tx.update(settingsTable).set(setFields).where(eq(settingsTable.key, key))
+        } else {
+          await tx.insert(settingsTable).values(row)
+        }
+      }),
+    )
+  })
 }
 
 /**

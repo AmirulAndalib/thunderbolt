@@ -4,8 +4,16 @@ import type { UIMessageMetadata } from '@/types'
 import { sql } from 'drizzle-orm'
 import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
+/**
+ * Settings table for user preferences.
+ *
+ * Note: The `key` field maps to the `id` column in the database for PowerSync compatibility.
+ * PowerSync requires all tables to have an `id` column as primary key.
+ *
+ * @todo Review this when migrating existing users - may need a migration to rename column.
+ */
 export const settingsTable = sqliteTable('settings', {
-  key: text('key').primaryKey(),
+  key: text('id').primaryKey().notNull(),
   value: text('value'),
   updatedAt: integer('updated_at').default(sql`(unixepoch())`),
   defaultHash: text('default_hash'),

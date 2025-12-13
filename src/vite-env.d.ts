@@ -2,6 +2,7 @@
 
 interface ImportMetaEnv {
   readonly VITE_THUNDERBOLT_CLOUD_URL?: string
+  readonly VITE_POWERSYNC_URL?: string
 }
 
 interface ImportMeta {

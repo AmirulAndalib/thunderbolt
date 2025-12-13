@@ -1,20 +1,28 @@
 import { DrizzleAppSchema } from '@powersync/drizzle-driver'
-import { modelsTable } from './tables'
+import {
+  chatMessagesTable,
+  chatThreadsTable,
+  mcpServersTable,
+  modelsTable,
+  promptsTable,
+  settingsTable,
+  tasksTable,
+  triggersTable,
+} from './tables'
 
 /**
- * Drizzle schema object containing tables that should be synced with PowerSync.
- *
- * Currently syncing:
- * - models: AI model configurations
- *
- * TODO: Add more tables later:
- * - settings: User preferences
- * - prompts: User-created prompts
- * - chatThreads: Chat conversation threads
- * - chatMessages: Individual messages within threads
+ * Drizzle schema object containing all tables for PowerSync.
+ * PowerSync creates views for these tables based on its JSON-based internal storage.
  */
 export const drizzleSchema = {
+  settings: settingsTable,
+  chatThreads: chatThreadsTable,
+  chatMessages: chatMessagesTable,
+  tasks: tasksTable,
   models: modelsTable,
+  mcpServers: mcpServersTable,
+  prompts: promptsTable,
+  triggers: triggersTable,
 }
 
 /**

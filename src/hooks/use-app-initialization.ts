@@ -1,7 +1,6 @@
 import type { HttpClient } from '@/contexts'
 import { getSettings } from '@/dal'
-import type { AnyDrizzleDatabase } from '@/db/database-interface'
-import { migrate } from '@/db/migrate'
+import type { PowerSyncConfig } from '@/db/powersync-connector'
 import { DatabaseSingleton } from '@/db/singleton'
 import { createHandleError } from '@/lib/error-utils'
 import { createAppDir, resetAppDir } from '@/lib/fs'
@@ -18,26 +17,28 @@ import ky from 'ky'
 import type { PostHog } from 'posthog-js'
 import { useCallback, useEffect, useState } from 'react'
 
+// Hardcoded user ID for POC (will be replaced with real auth later)
+const POWERSYNC_USER_ID = 'dev-user-001'
+
+const getPowerSyncConfig = (): PowerSyncConfig => ({
+  powersyncUrl: import.meta.env.VITE_POWERSYNC_URL || 'http://localhost:8080',
+  backendUrl: import.meta.env.VITE_THUNDERBOLT_CLOUD_URL || 'http://localhost:8000/v1',
+  userId: POWERSYNC_USER_ID,
+})
+
 const createAppDirectory = async (): Promise<string> => {
   return await createAppDir()
 }
 
-const initializeDatabase = async (appDirPath: string): Promise<AnyDrizzleDatabase> => {
+const initializeDatabase = async (appDirPath: string): Promise<void> => {
   const databaseType = await getDatabaseType()
   const dbPath = await getDatabasePath(databaseType, appDirPath)
 
-  return await DatabaseSingleton.instance.initialize({
+  await DatabaseSingleton.instance.initialize({
     type: databaseType,
     path: dbPath,
+    powersyncConfig: getPowerSyncConfig(),
   })
-}
-
-const runDatabaseMigrations = async (db: AnyDrizzleDatabase): Promise<void> => {
-  await migrate(db)
-}
-
-const reconcileDefaultSettings = async (db: AnyDrizzleDatabase): Promise<void> => {
-  await reconcileDefaults(db)
 }
 
 const initializeTray = async (): Promise<{ tray: TrayIcon | undefined; window: Window | undefined }> => {
@@ -64,10 +65,9 @@ const executeInitializationSteps = async (httpClient?: HttpClient): Promise<Hand
     }
   }
 
-  // Step 2: Database initialization
-  let db: AnyDrizzleDatabase
+  // Step 2: Database initialization (PowerSync manages its own schema, no migrations needed)
   try {
-    db = await initializeDatabase(appDirPath)
+    await initializeDatabase(appDirPath)
   } catch (error) {
     console.error('Failed to initialize database:', error)
     const dbError = createHandleError('DATABASE_INIT_FAILED', 'Failed to initialize database', error)
@@ -78,22 +78,9 @@ const executeInitializationSteps = async (httpClient?: HttpClient): Promise<Hand
     }
   }
 
-  // Step 3: Database migrations
+  // Step 3: Reconcile default settings
   try {
-    await runDatabaseMigrations(db)
-  } catch (error) {
-    console.error('Failed to run database migrations:', error)
-    const migrationError = createHandleError('MIGRATION_FAILED', 'Failed to run database migrations', error)
-    trackError(migrationError, { initialization_step: 'database_migration' })
-    return {
-      success: false,
-      error: migrationError,
-    }
-  }
-
-  // Step 4: Reconcile defaults
-  try {
-    await reconcileDefaultSettings(db)
+    await reconcileDefaults(DatabaseSingleton.instance.db)
   } catch (error) {
     console.error('Failed to reconcile default settings:', error)
     const reconcileError = createHandleError('RECONCILE_DEFAULTS_FAILED', 'Failed to reconcile default settings', error)
@@ -104,7 +91,7 @@ const executeInitializationSteps = async (httpClient?: HttpClient): Promise<Hand
     }
   }
 
-  // Step 5: HTTP client initialization (use provided client or create one)
+  // Step 4: HTTP client initialization (use provided client or create one)
   let client: HttpClient
   if (httpClient) {
     client = httpClient
