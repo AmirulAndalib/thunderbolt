@@ -7,7 +7,7 @@ import {
   shouldRetry,
   shouldShowPreventiveNudge,
 } from '@/ai/step-logic'
-import { getSettings } from '@/dal'
+import { getModel, getSettings } from '@/dal'
 import { DatabaseSingleton } from '@/db/singleton'
 import { modelsTable } from '@/db/tables'
 import { fetch } from '@/lib/fetch'
@@ -126,8 +126,6 @@ export const aiFetchStreamingResponse = async ({
 
   await saveMessages({ id, messages })
 
-  const db = DatabaseSingleton.instance.db
-
   // Fetch all settings in a single query (returns camelCase by default)
   const settings = await getSettings({
     preferred_name: '',
@@ -141,13 +139,10 @@ export const aiFetchStreamingResponse = async ({
     currency: 'USD',
   })
 
-  const model = await db.query.modelsTable.findFirst({
-    where: eq(modelsTable.id, modelId),
-  })
-
+  const model = await getModel(modelId)
   if (!model) throw new Error('Model not found')
 
-  const supportsTools = model.toolUsage !== 0
+  const supportsTools = model.toolUsage !== 0 && mcpClients && mcpClients.length > 0
 
   let toolset: ToolSet = {}
   if (supportsTools) {
