@@ -3,6 +3,7 @@ import { getSettings } from '@/dal'
 import type { AnyDrizzleDatabase } from '@/db/database-interface'
 import { initializeCRRs, migrate } from '@/db/migrate'
 import { DatabaseSingleton } from '@/db/singleton'
+import { SyncService } from '@/db/sync-service'
 import { createHandleError } from '@/lib/error-utils'
 import { createAppDir, resetAppDir } from '@/lib/fs'
 import { getDatabasePath, getDatabaseType } from '@/lib/platform'
@@ -17,6 +18,9 @@ import type { Window } from '@tauri-apps/api/window'
 import ky from 'ky'
 import type { PostHog } from 'posthog-js'
 import { useCallback, useEffect, useState } from 'react'
+
+// Default cloud URL - used for initial sync before settings are loaded
+const DEFAULT_CLOUD_URL = import.meta.env.VITE_THUNDERBOLT_CLOUD_URL || 'http://localhost:8000/v1'
 
 const createAppDirectory = async (): Promise<string> => {
   return await createAppDir()
@@ -104,9 +108,22 @@ const executeInitializationSteps = async (httpClient?: HttpClient): Promise<Hand
         error: crrError,
       }
     }
+
+    // Step 3.6: Initial sync pull BEFORE reconciling defaults
+    // This ensures new devices receive existing data before populating with defaults
+    // Without this, new devices would create default data first, then sync would
+    // pull remote changes too late (after defaults already exist)
+    try {
+      const initialHttpClient = ky.create({ prefixUrl: DEFAULT_CLOUD_URL })
+      const tempSyncService = new SyncService({ httpClient: initialHttpClient })
+      await tempSyncService.pullChanges()
+    } catch (error) {
+      // Non-critical - continue even if initial sync fails (e.g., offline, no server)
+      console.warn('Initial sync pull failed, continuing with defaults:', error)
+    }
   }
 
-  // Step 4: Reconcile defaults
+  // Step 4: Reconcile defaults (skips records that already exist from sync)
   try {
     await reconcileDefaultSettings(db)
   } catch (error) {

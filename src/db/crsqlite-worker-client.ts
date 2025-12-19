@@ -13,8 +13,8 @@ type WorkerRequest = {
     sql?: string
     params?: unknown[]
     method?: 'get' | 'all' | 'values' | 'run'
-    sinceVersion?: bigint
-    changes?: CRSQLChange[]
+    sinceVersion?: string // BigInt serialized as string for postMessage
+    changes?: unknown[] // Changes with BigInt serialized as strings
   }
 }
 
@@ -24,8 +24,8 @@ type WorkerResponse = {
     rows?: unknown[] | unknown
     success?: boolean
     siteId?: string
-    changes?: CRSQLChange[]
-    dbVersion?: bigint
+    changes?: unknown[] // Changes with BigInt serialized as strings
+    dbVersion?: string // BigInt serialized as string for postMessage
   }
   error?: string
 }
@@ -157,20 +157,37 @@ export class CRSQLiteWorkerClient {
 
   /**
    * Get changes since a given version
+   * Note: BigInt values are serialized as strings for postMessage compatibility
    */
   async getChanges(sinceVersion: bigint): Promise<{ changes: CRSQLChange[]; dbVersion: bigint }> {
-    const result = (await this.sendRequest('getChanges', { sinceVersion })) as {
-      changes: CRSQLChange[]
-      dbVersion: bigint
+    // Serialize BigInt as string for postMessage
+    const result = (await this.sendRequest('getChanges', { sinceVersion: sinceVersion.toString() })) as {
+      changes: Array<Omit<CRSQLChange, 'col_version' | 'db_version'> & { col_version: string; db_version: string }>
+      dbVersion: string
     }
-    return result
+    // Deserialize BigInt values from strings
+    return {
+      changes: result.changes.map((change) => ({
+        ...change,
+        col_version: BigInt(change.col_version),
+        db_version: BigInt(change.db_version),
+      })),
+      dbVersion: BigInt(result.dbVersion),
+    }
   }
 
   /**
    * Apply remote changes to the local database
+   * Note: BigInt values are serialized as strings for postMessage compatibility
    */
   async applyChanges(changes: CRSQLChange[]): Promise<void> {
-    await this.sendRequest('applyChanges', { changes })
+    // Serialize BigInt values as strings (postMessage doesn't support BigInt)
+    const serializedChanges = changes.map((change) => ({
+      ...change,
+      col_version: change.col_version.toString(),
+      db_version: change.db_version.toString(),
+    }))
+    await this.sendRequest('applyChanges', { changes: serializedChanges })
   }
 
   /**

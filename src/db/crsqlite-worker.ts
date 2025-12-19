@@ -12,6 +12,9 @@ if (typeof process !== 'undefined' && process.env.NODE_ENV === 'test') {
 
 import initWasm, { type DB } from '@vlcn.io/crsqlite-wasm'
 
+// SQLite compatible types for parameter binding
+type SQLiteCompatibleType = number | string | Uint8Array | Array<number> | bigint | null
+
 type WorkerRequest = {
   id: number
   method: 'init' | 'exec' | 'close' | 'getSiteId' | 'getChanges' | 'applyChanges'
@@ -20,8 +23,8 @@ type WorkerRequest = {
     sql?: string
     params?: unknown[]
     method?: 'get' | 'all' | 'values' | 'run'
-    sinceVersion?: bigint
-    changes?: CRSQLChange[]
+    sinceVersion?: string // BigInt serialized as string for postMessage
+    changes?: unknown[] // Changes with BigInt serialized as strings
   }
 }
 
@@ -31,8 +34,8 @@ type WorkerResponse = {
     rows?: unknown[] | unknown
     success?: boolean
     siteId?: string
-    changes?: CRSQLChange[]
-    dbVersion?: bigint
+    changes?: unknown[] // Changes with BigInt serialized as strings
+    dbVersion?: string // BigInt serialized as string for postMessage
   }
   error?: string
 }
@@ -190,12 +193,26 @@ const getSiteId = (): string => {
 }
 
 /**
- * Get changes from crsql_changes since the given version
+ * Type for serialized changes returned via postMessage (BigInt as strings)
  */
-const getChangesInternal = async (sinceVersion: bigint): Promise<{ changes: CRSQLChange[]; dbVersion: bigint }> => {
+type SerializedCRSQLChangeOut = Omit<CRSQLChange, 'col_version' | 'db_version'> & {
+  col_version: string
+  db_version: string
+}
+
+/**
+ * Get changes from crsql_changes since the given version
+ * Returns BigInt values as strings for postMessage compatibility
+ */
+const getChangesInternal = async (
+  sinceVersion: string | bigint,
+): Promise<{ changes: SerializedCRSQLChangeOut[]; dbVersion: string }> => {
   if (!db) {
     throw new Error('Database not initialized')
   }
+
+  // Convert sinceVersion from string if needed (from postMessage)
+  const sinceVersionBigInt = typeof sinceVersion === 'string' ? BigInt(sinceVersion) : sinceVersion
 
   // Get the current db version
   const versionResult = await db.execA<[bigint]>('SELECT crsql_db_version()')
@@ -207,23 +224,40 @@ const getChangesInternal = async (sinceVersion: bigint): Promise<{ changes: CRSQ
      FROM crsql_changes
      WHERE db_version > ?
      ORDER BY db_version, seq`,
-    [sinceVersion],
+    [sinceVersionBigInt],
   )
 
-  return { changes, dbVersion }
+  // Serialize BigInt values as strings for postMessage
+  const serializedChanges: SerializedCRSQLChangeOut[] = changes.map((change) => ({
+    ...change,
+    col_version: change.col_version.toString(),
+    db_version: change.db_version.toString(),
+  }))
+
+  return { changes: serializedChanges, dbVersion: dbVersion.toString() }
 }
 
 /**
  * Get changes since a given version (queued)
  */
-const getChanges = async (sinceVersion: bigint): Promise<{ changes: CRSQLChange[]; dbVersion: bigint }> => {
+const getChanges = async (
+  sinceVersion: string | bigint,
+): Promise<{ changes: SerializedCRSQLChangeOut[]; dbVersion: string }> => {
   return queueOperation(() => getChangesInternal(sinceVersion))
 }
 
 /**
  * Apply remote changes to the local database
  */
-const applyChangesInternal = async (changes: CRSQLChange[]): Promise<void> => {
+/**
+ * Type for changes received from postMessage (BigInt serialized as strings)
+ */
+type SerializedCRSQLChange = Omit<CRSQLChange, 'col_version' | 'db_version'> & {
+  col_version: string | bigint
+  db_version: string | bigint
+}
+
+const applyChangesInternal = async (changes: SerializedCRSQLChange[]): Promise<void> => {
   if (!db) {
     throw new Error('Database not initialized')
   }
@@ -233,34 +267,36 @@ const applyChangesInternal = async (changes: CRSQLChange[]): Promise<void> => {
   }
 
   // Insert changes into crsql_changes - cr-sqlite will merge them
-  const stmt = await db.prepare(
-    `INSERT INTO crsql_changes ("table", "pk", "cid", "val", "col_version", "db_version", "site_id", "cl", "seq")
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  )
+  // Note: Using db.exec instead of prepared statements because stmt.run doesn't
+  // correctly bind Uint8Array and BigInt parameters for virtual tables
+  for (const change of changes) {
+    // Convert string versions back to BigInt (they were serialized for postMessage)
+    const colVersion = typeof change.col_version === 'string' ? BigInt(change.col_version) : change.col_version
+    const dbVersion = typeof change.db_version === 'string' ? BigInt(change.db_version) : change.db_version
 
-  try {
-    for (const change of changes) {
-      await stmt.run([
+    await db.exec(
+      `INSERT INTO crsql_changes ("table", "pk", "cid", "val", "col_version", "db_version", "site_id", "cl", "seq")
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
         change.table,
         change.pk,
         change.cid,
-        change.val,
-        change.col_version,
-        change.db_version,
+        change.val as SQLiteCompatibleType,
+        colVersion,
+        dbVersion,
         change.site_id,
         change.cl,
         change.seq,
-      ] as any)
-    }
-  } finally {
-    await stmt.finalize(null)
+      ],
+    )
   }
 }
 
 /**
  * Apply changes (queued)
+ * Changes come from postMessage with BigInt serialized as strings
  */
-const applyChanges = async (changes: CRSQLChange[]): Promise<void> => {
+const applyChanges = async (changes: SerializedCRSQLChange[]): Promise<void> => {
   return queueOperation(() => applyChangesInternal(changes))
 }
 
@@ -300,13 +336,14 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
         break
 
       case 'getChanges': {
-        const { changes, dbVersion } = await getChanges(params?.sinceVersion ?? 0n)
+        // sinceVersion comes as string from postMessage, default to '0'
+        const { changes, dbVersion } = await getChanges(params?.sinceVersion ?? '0')
         response.result = { changes, dbVersion }
         break
       }
 
       case 'applyChanges':
-        await applyChanges(params?.changes ?? [])
+        await applyChanges((params?.changes ?? []) as SerializedCRSQLChange[])
         response.result = { success: true }
         break
 
