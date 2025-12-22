@@ -257,13 +257,16 @@ type SerializedCRSQLChange = Omit<CRSQLChange, 'col_version' | 'db_version'> & {
   db_version: string | bigint
 }
 
-const applyChangesInternal = async (changes: SerializedCRSQLChange[]): Promise<void> => {
+const applyChangesInternal = async (changes: SerializedCRSQLChange[]): Promise<{ dbVersion: string }> => {
   if (!db) {
     throw new Error('Database not initialized')
   }
 
   if (changes.length === 0) {
-    return
+    // Still return current db version even if no changes to apply
+    const versionResult = await db.execA<[bigint]>('SELECT crsql_db_version()')
+    const currentDbVersion = versionResult[0]?.[0] ?? 0n
+    return { dbVersion: currentDbVersion.toString() }
   }
 
   // Insert changes into crsql_changes - cr-sqlite will merge them
@@ -290,13 +293,19 @@ const applyChangesInternal = async (changes: SerializedCRSQLChange[]): Promise<v
       ],
     )
   }
+
+  // Return the current db version after applying changes
+  const versionResult = await db.execA<[bigint]>('SELECT crsql_db_version()')
+  const currentDbVersion = versionResult[0]?.[0] ?? 0n
+  return { dbVersion: currentDbVersion.toString() }
 }
 
 /**
  * Apply changes (queued)
  * Changes come from postMessage with BigInt serialized as strings
+ * Returns the current db version after applying changes
  */
-const applyChanges = async (changes: SerializedCRSQLChange[]): Promise<void> => {
+const applyChanges = async (changes: SerializedCRSQLChange[]): Promise<{ dbVersion: string }> => {
   return queueOperation(() => applyChangesInternal(changes))
 }
 
@@ -342,10 +351,11 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
         break
       }
 
-      case 'applyChanges':
-        await applyChanges((params?.changes ?? []) as SerializedCRSQLChange[])
-        response.result = { success: true }
+      case 'applyChanges': {
+        const applyResult = await applyChanges((params?.changes ?? []) as SerializedCRSQLChange[])
+        response.result = { success: true, dbVersion: applyResult.dbVersion }
         break
+      }
 
       case 'close':
         await closeDatabase()

@@ -210,12 +210,12 @@ export class SyncService {
 
   /**
    * Apply remote changes to local database
+   * Returns the current db version after applying changes
    */
-  async applyRemoteChanges(changes: CRSQLChange[]): Promise<void> {
-    if (changes.length === 0) return
-
+  async applyRemoteChanges(changes: CRSQLChange[]): Promise<bigint> {
     const db = DatabaseSingleton.instance.syncableDatabase
-    await db.applyChanges(changes)
+    const result = await db.applyChanges(changes)
+    return result.dbVersion
   }
 
   /**
@@ -286,10 +286,16 @@ export class SyncService {
 
     let affectedTables: string[] = []
 
-    if (response.changes.length > 0) {
-      const changes = response.changes.map(deserializeChange)
-      await this.applyRemoteChanges(changes)
+    // Apply remote changes and update last synced version
+    // This is crucial: after applying remote changes, we must update lastSyncedVersion
+    // to the new local db_version so these changes don't get pushed back on the next sync
+    const changes = response.changes.map(deserializeChange)
+    const localDbVersion = await this.applyRemoteChanges(changes)
 
+    // Update last synced version to prevent re-pushing applied changes
+    this.setLastSyncedVersion(localDbVersion)
+
+    if (response.changes.length > 0) {
       // Extract unique table names from the changes
       affectedTables = [...new Set(response.changes.map((c) => c.table))]
 

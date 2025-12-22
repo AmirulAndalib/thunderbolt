@@ -179,15 +179,20 @@ export class CRSQLiteWorkerClient {
   /**
    * Apply remote changes to the local database
    * Note: BigInt values are serialized as strings for postMessage compatibility
+   * Returns the current db version after applying changes
    */
-  async applyChanges(changes: CRSQLChange[]): Promise<void> {
+  async applyChanges(changes: CRSQLChange[]): Promise<{ dbVersion: bigint }> {
     // Serialize BigInt values as strings (postMessage doesn't support BigInt)
     const serializedChanges = changes.map((change) => ({
       ...change,
       col_version: change.col_version.toString(),
       db_version: change.db_version.toString(),
     }))
-    await this.sendRequest('applyChanges', { changes: serializedChanges })
+    const result = (await this.sendRequest('applyChanges', { changes: serializedChanges })) as {
+      success: boolean
+      dbVersion: string
+    }
+    return { dbVersion: BigInt(result.dbVersion) }
   }
 
   /**

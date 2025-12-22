@@ -113,8 +113,9 @@ export class CRSQLiteDatabase implements DatabaseInterface {
 
   /**
    * Apply remote changes from sync
+   * Returns the current db version after applying changes
    */
-  async applyChanges(changes: CRSQLChange[]): Promise<void> {
+  async applyChanges(changes: CRSQLChange[]): Promise<{ dbVersion: bigint }> {
     if (!this.workerClient) {
       throw new Error('Database not initialized')
     }
