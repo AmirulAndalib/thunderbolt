@@ -29,10 +29,13 @@ export type OfflineInput = {
   }
   /** Original latency from the trace */
   latencyMs: number
+  /** Error from the original trace (if any) */
+  error?: string
 }
 
 /**
- * Output type from offline executor (same as input's existingOutput)
+ * Output type from offline executor
+ * Compatible with QualityOutput so quality evaluators can be used
  */
 export type OfflineOutput = {
   /** The answer/content from the trace */
@@ -48,8 +51,8 @@ export type OfflineOutput = {
   turnCount: number
   /** Latency from the original trace */
   latencyMs: number
-  /** Status */
-  status: 'completed' | 'error'
+  /** Status - compatible with QualityOutput */
+  status: 'completed' | 'max_turns' | 'timeout' | 'error'
   /** Error if present */
   error?: string
 }
@@ -59,6 +62,9 @@ export type OfflineOutput = {
  *
  * Use this when evaluating production traces where you already have
  * the model's output and don't want to re-execute.
+ *
+ * This executor preserves error state from the original trace, allowing
+ * evaluators to assess failure patterns and error handling.
  */
 export const offlineExecutor = defineExecutor<OfflineInput, OfflineOutput>({
   name: 'offline',
@@ -76,15 +82,22 @@ export const offlineExecutor = defineExecutor<OfflineInput, OfflineOutput>({
       }
     })
 
+    // Determine status based on content and error state
+    const hasContent = input.existingOutput.content.trim().length > 0
+    const hasError = !!input.error
+    const status: 'completed' | 'error' = hasError || !hasContent ? 'error' : 'completed'
+
     return {
       output: {
         answer: input.existingOutput.content,
         toolCalls,
         turnCount: 1,
         latencyMs: input.latencyMs,
-        status: 'completed',
+        status,
+        error: input.error,
       },
       latencyMs: input.latencyMs,
+      error: input.error,
     }
   },
 })
