@@ -24,7 +24,10 @@ bun run eval behavioral --provider console
 # Run quality tests with LangSmith tracking
 bun run eval quality --provider langsmith
 
-# Evaluate production traces (offline)
+# Run quality tests using production traces as dataset (no re-execution)
+bun run eval quality --provider langsmith --from-traces --limit 10
+
+# Evaluate production traces (attaches feedback to original runs)
 bun run eval traces --provider langsmith --limit 50
 
 # Run all tests (fast mode, no LLM judges)
@@ -35,6 +38,65 @@ bun run eval:sync --provider langsmith
 
 # List available providers
 bun run eval --list-providers
+```
+
+## Available Models
+
+The following models are available for evaluation:
+
+| Model ID             | Provider    | Description                  |
+| -------------------- | ----------- | ---------------------------- |
+| `gpt-oss-120b`       | Thunderbolt | Mozilla's GPT-OSS 120B model |
+| `mistral-medium-3.1` | Mistral     | Mistral Medium (default)     |
+| `mistral-large-3`    | Mistral     | Mistral Large                |
+| `sonnet-4.5`         | Anthropic   | Claude Sonnet 4.5            |
+
+### Running Evaluations with Each Model
+
+**Behavioral evaluations:**
+
+```bash
+# GPT-OSS 120B
+bun run eval behavioral --provider langsmith --model gpt-oss-120b
+
+# Mistral Medium 3.1 (default)
+bun run eval behavioral --provider langsmith --model mistral-medium-3.1
+
+# Mistral Large 3
+bun run eval behavioral --provider langsmith --model mistral-large-3
+
+# Claude Sonnet 4.5
+bun run eval behavioral --provider langsmith --model sonnet-4.5
+```
+
+**Quality evaluations:**
+
+```bash
+# GPT-OSS 120B
+bun run eval quality --provider langsmith --model gpt-oss-120b
+
+# Mistral Medium 3.1 (default)
+bun run eval quality --provider langsmith --model mistral-medium-3.1
+
+# Mistral Large 3
+bun run eval quality --provider langsmith --model mistral-large-3
+
+# Claude Sonnet 4.5
+bun run eval quality --provider langsmith --model sonnet-4.5
+```
+
+**Fast mode (skip LLM judges):**
+
+```bash
+# Any model with --fast flag
+bun run eval behavioral --provider console --model gpt-oss-120b --fast
+bun run eval quality --provider console --model mistral-large-3 --fast
+```
+
+**Run all evaluations for a model:**
+
+```bash
+bun run eval all --provider langsmith --model sonnet-4.5
 ```
 
 ## Test Suites
@@ -88,6 +150,48 @@ Evaluates **production traces** without re-executing the model.
 - **Source**: Traces from LangSmith Observability
 - **Speed**: Medium (depends on trace count)
 - **Cost**: LLM judge costs only (no model execution)
+
+There are two ways to evaluate production traces:
+
+#### 1. `bun run eval traces` (Feedback Mode)
+
+Attaches evaluation scores directly to the **original production traces** in LangSmith.
+
+```bash
+bun run eval traces --provider langsmith --limit 10
+```
+
+- Results appear in the **Feedback tab** of each trace
+- No experiment created
+- Good for annotating existing data
+
+#### 2. `bun run eval quality --from-traces` (Experiment Mode)
+
+Creates a proper **Experiment** in LangSmith using production traces as the dataset.
+
+```bash
+bun run eval quality --provider langsmith --from-traces --limit 10
+```
+
+- Creates an experiment in **Experiments tab**
+- Uses full quality evaluators (answer quality, faithfulness, hallucination, etc.)
+- Good for comparing models on real data
+- Traces are NOT re-executed, existing responses are evaluated
+
+**Common options:**
+
+```bash
+# Limit number of traces
+--limit 20
+
+# Traces from last N hours (default: 24)
+--since 720  # Last 30 days
+
+# Filter options
+--errors-only      # Only traces with errors
+--exclude-errors   # Exclude error traces
+--random           # Random sample instead of most recent
+```
 
 ---
 
@@ -157,7 +261,7 @@ Override default tags via `ExecutorConfig.sourceTags`:
 
 ```typescript
 const config: ExecutorConfig = {
-  backendUrl: 'http://localhost:3000',
+  backendUrl: 'http://localhost:8000',
   model: 'mistral',
   timeoutMs: 60000,
   sourceTags: ['evaluation', 'custom-suite', 'experiment-123'],
@@ -212,7 +316,7 @@ bun run eval <suite> --provider <name> [options]
 | Variable            | Description       | Default                               |
 | ------------------- | ----------------- | ------------------------------------- |
 | `EVAL_MODEL`        | Default model     | `mistral-medium-3.1`                  |
-| `BACKEND_URL`       | Backend URL       | `http://localhost:3000`               |
+| `BACKEND_URL`       | Backend URL       | `http://localhost:8000`               |
 | `LLM_JUDGE_MODEL`   | Judge model       | `anthropic:claude-3-5-haiku-20241022` |
 | `LANGSMITH_API_KEY` | LangSmith API key | Required for langsmith                |
 | `LANGSMITH_PROJECT` | LangSmith project | Required for traces                   |

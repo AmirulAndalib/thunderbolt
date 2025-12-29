@@ -13,11 +13,42 @@ bun run eval behavioral --provider console
 # Quality (comprehensive, LLM judges)
 bun run eval quality --provider langsmith
 
-# Production traces (offline evaluation)
+# Quality using production traces as dataset (no re-execution, creates experiment)
+bun run eval quality --provider langsmith --from-traces --limit 10
+
+# Production traces - attaches feedback to original runs (no experiment)
 bun run eval traces --provider langsmith --limit 50
 
 # Fast mode (skip LLM judges)
 bun run eval behavioral --provider console --fast
+```
+
+### Available Models
+
+| Model ID             | Provider    |
+| -------------------- | ----------- |
+| `gpt-oss-120b`       | Thunderbolt |
+| `mistral-medium-3.1` | Mistral     |
+| `mistral-large-3`    | Mistral     |
+| `sonnet-4.5`         | Anthropic   |
+
+### Run with Specific Models
+
+```bash
+# Behavioral evaluations
+bun run eval behavioral --provider langsmith --model gpt-oss-120b
+bun run eval behavioral --provider langsmith --model mistral-medium-3.1
+bun run eval behavioral --provider langsmith --model mistral-large-3
+bun run eval behavioral --provider langsmith --model sonnet-4.5
+
+# Quality evaluations
+bun run eval quality --provider langsmith --model gpt-oss-120b
+bun run eval quality --provider langsmith --model mistral-medium-3.1
+bun run eval quality --provider langsmith --model mistral-large-3
+bun run eval quality --provider langsmith --model sonnet-4.5
+
+# All evaluations for a model
+bun run eval all --provider langsmith --model sonnet-4.5
 ```
 
 ### Key Directories
