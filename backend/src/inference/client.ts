@@ -11,6 +11,19 @@ type InferenceClient = {
 }
 
 /**
+ * Check if Helicone observability is configured
+ */
+export const isHeliconeConfigured = (): boolean => {
+  const settings = getSettings()
+  return !!settings.heliconeApiKey
+}
+
+/**
+ * Providers that support Helicone proxy routing
+ */
+export const HELICONE_SUPPORTED_PROVIDERS: InferenceProvider[] = ['mistral', 'anthropic']
+
+/**
  * Lazily initialized Fireworks client
  */
 let fireworksClient: OpenAI | PostHogOpenAI | null = null
@@ -104,6 +117,7 @@ const getThunderboltClient = (fetchFn?: typeof fetch): OpenAI | PostHogOpenAI =>
 
 /**
  * Get the Mistral AI client using OpenAI-compatible API
+ * Routes through Helicone proxy if HELICONE_API_KEY is configured
  */
 const getMistralClient = (fetchFn?: typeof fetch): OpenAI | PostHogOpenAI => {
   if (mistralClient && !fetchFn) {
@@ -116,9 +130,22 @@ const getMistralClient = (fetchFn?: typeof fetch): OpenAI | PostHogOpenAI => {
     throw new Error('Mistral API key not configured')
   }
 
+  // Use Helicone proxy if configured
+  const useHelicone = !!settings.heliconeApiKey
+  const baseURL = useHelicone ? 'https://mistral.helicone.ai/v1' : 'https://api.mistral.ai/v1'
+
+  if (useHelicone) {
+    console.info(`🔍 [Helicone] Mistral client routing through: ${baseURL}`)
+  }
+
   const params = {
     apiKey: settings.mistralApiKey,
-    baseURL: 'https://api.mistral.ai/v1',
+    baseURL,
+    ...(useHelicone && {
+      defaultHeaders: {
+        'Helicone-Auth': `Bearer ${settings.heliconeApiKey}`,
+      },
+    }),
     ...(fetchFn && { fetch: fetchFn }),
   }
 
@@ -138,6 +165,7 @@ const getMistralClient = (fetchFn?: typeof fetch): OpenAI | PostHogOpenAI => {
 
 /**
  * Get the Anthropic AI client using OpenAI-compatible API
+ * Routes through Helicone proxy if HELICONE_API_KEY is configured
  */
 const getAnthropicClient = (fetchFn?: typeof fetch): OpenAI | PostHogOpenAI => {
   if (anthropicClient && !fetchFn) {
@@ -150,9 +178,22 @@ const getAnthropicClient = (fetchFn?: typeof fetch): OpenAI | PostHogOpenAI => {
     throw new Error('Anthropic API key not configured')
   }
 
+  // Use Helicone proxy if configured
+  const useHelicone = !!settings.heliconeApiKey
+  const baseURL = useHelicone ? 'https://anthropic.helicone.ai/v1/' : 'https://api.anthropic.com/v1/'
+
+  if (useHelicone) {
+    console.info(`🔍 [Helicone] Anthropic client routing through: ${baseURL}`)
+  }
+
   const params = {
     apiKey: settings.anthropicApiKey,
-    baseURL: 'https://api.anthropic.com/v1/',
+    baseURL,
+    ...(useHelicone && {
+      defaultHeaders: {
+        'Helicone-Auth': `Bearer ${settings.heliconeApiKey}`,
+      },
+    }),
     ...(fetchFn && { fetch: fetchFn }),
   }
 
