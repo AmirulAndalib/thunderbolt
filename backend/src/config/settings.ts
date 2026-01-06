@@ -29,6 +29,10 @@ const settingsSchema = z.object({
   posthogHost: z.string().default('https://us.i.posthog.com'),
   posthogApiKey: z.string().default(''),
 
+  // Promptfoo settings (LLM evaluation & red teaming)
+  promptfooEnabled: z.boolean().default(false),
+  promptfooApiBaseUrl: z.string().default('http://localhost:3001'),
+
   // CORS settings
   corsOrigins: z.string().default('http://localhost:1420'),
   corsOriginRegex: z
@@ -66,6 +70,8 @@ const parseSettings = (): Settings => {
     port: process.env.PORT || '8000',
     posthogHost: process.env.POSTHOG_HOST || 'https://us.i.posthog.com',
     posthogApiKey: process.env.POSTHOG_API_KEY || '',
+    promptfooEnabled: process.env.PROMPTFOO_ENABLED === 'true',
+    promptfooApiBaseUrl: process.env.PROMPTFOO_API_BASE_URL || 'http://localhost:3001',
     corsOrigins: process.env.CORS_ORIGINS || 'http://localhost:1420',
     corsOriginRegex:
       process.env.CORS_ORIGIN_REGEX ||
