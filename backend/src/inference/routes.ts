@@ -51,7 +51,8 @@ export const createInferenceRoutes = () => {
 
     const { client } = getInferenceClient(provider)
 
-    console.info(`Routing model "${body.model}" to ${provider} provider`)
+    // Parse conversation context from headers
+    const conversationId = ctx.request.headers.get('X-Conversation-Id') ?? undefined
 
     try {
       const completion = await (client as PostHogOpenAI).chat.completions.create({
@@ -67,7 +68,7 @@ export const createInferenceRoutes = () => {
             endpoint: '/chat/completions',
             has_tools: !!body.tools,
             temperature: body.temperature,
-            // @todo add distinct id and trace id
+            conversation_id: conversationId,
           },
         }),
       })
