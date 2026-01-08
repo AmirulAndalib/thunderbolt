@@ -1,0 +1,217 @@
+# =============================================================================
+# Langfuse Evaluation Stack
+# =============================================================================
+# Self-hosted Langfuse v3 with full headless initialization.
+# All services run locally via Docker - no cloud dependencies.
+#
+# Services:
+#   - langfuse-web     (3100) - Main UI
+#   - langfuse-worker  (3030) - Background processing
+#   - postgres         (5432) - Metadata database
+#   - clickhouse       (8123) - Traces database
+#   - redis            (6379) - Queue
+#   - minio            (9000) - Local S3-compatible storage
+#
+# Headless Init:
+#   On first startup, Langfuse automatically creates:
+#   - Organization: thunderbolt-eval
+#   - Project: evaluation
+#   - User: eval@thunderbolt.local / changeme123
+#   - API Keys: pk-tb-eval-... / sk-tb-eval-...
+#
+# Usage:
+#   docker compose up -d
+#   open http://localhost:3100
+# =============================================================================
+
+services:
+  # ===========================================================================
+  # Langfuse Web - Main Application
+  # ===========================================================================
+  langfuse-web:
+    image: langfuse/langfuse:3
+    container_name: thunderbolt-langfuse-web
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    ports:
+      - '3100:3000'
+    environment: &langfuse-env
+      # Database
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/langfuse
+
+      # Auth
+      NEXTAUTH_URL: http://localhost:3100
+      NEXTAUTH_SECRET: thunderbolt-eval-secret-change-in-production
+      SALT: thunderbolt-eval-salt-change-in-production
+      ENCRYPTION_KEY: a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2
+
+      # ClickHouse
+      CLICKHOUSE_URL: http://clickhouse:8123
+      CLICKHOUSE_MIGRATION_URL: clickhouse://clickhouse:9000
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: clickhouse
+      CLICKHOUSE_CLUSTER_ENABLED: 'false'
+
+      # Redis
+      REDIS_HOST: redis
+      REDIS_PORT: '6379'
+      REDIS_AUTH: thunderbolt-redis
+
+      # S3 / MinIO (local)
+      LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
+      LANGFUSE_S3_EVENT_UPLOAD_REGION: us-east-1
+      LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: minioadmin
+      LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: minioadmin
+      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://minio:9000
+      LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: 'true'
+      LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: langfuse
+      LANGFUSE_S3_MEDIA_UPLOAD_REGION: us-east-1
+      LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: minioadmin
+      LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: minioadmin
+      LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://minio:9000
+      LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: 'true'
+
+      # Headless Initialization - Auto-create org, project, user, API keys
+      LANGFUSE_INIT_ORG_ID: thunderbolt-eval
+      LANGFUSE_INIT_ORG_NAME: Thunderbolt Evaluation
+      LANGFUSE_INIT_PROJECT_ID: evaluation
+      LANGFUSE_INIT_PROJECT_NAME: LLM Evaluation
+      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: pk-tb-eval-0000000000000000
+      LANGFUSE_INIT_PROJECT_SECRET_KEY: sk-tb-eval-0000000000000000
+      LANGFUSE_INIT_USER_EMAIL: eval@thunderbolt.local
+      LANGFUSE_INIT_USER_NAME: Evaluation Admin
+      LANGFUSE_INIT_USER_PASSWORD: changeme123
+
+      # Telemetry
+      TELEMETRY_ENABLED: 'false'
+
+    healthcheck:
+      test: ['CMD', 'wget', '--spider', '-q', 'http://localhost:3000/api/public/health']
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  # ===========================================================================
+  # Langfuse Worker - Background Processing
+  # ===========================================================================
+  langfuse-worker:
+    image: langfuse/langfuse-worker:3
+    container_name: thunderbolt-langfuse-worker
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    environment:
+      <<: *langfuse-env
+
+  # ===========================================================================
+  # PostgreSQL - Metadata Database
+  # ===========================================================================
+  postgres:
+    image: postgres:16-alpine
+    container_name: thunderbolt-langfuse-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: langfuse
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d langfuse']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ===========================================================================
+  # ClickHouse - Traces Database
+  # ===========================================================================
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.3
+    container_name: thunderbolt-langfuse-clickhouse
+    restart: unless-stopped
+    environment:
+      CLICKHOUSE_DB: default
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: clickhouse
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - clickhouse_logs:/var/log/clickhouse-server
+    healthcheck:
+      test: ['CMD', 'wget', '--spider', '-q', 'http://localhost:8123/ping']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ===========================================================================
+  # Redis - Queue
+  # ===========================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: thunderbolt-langfuse-redis
+    restart: unless-stopped
+    command: redis-server --requirepass thunderbolt-redis
+    healthcheck:
+      test: ['CMD', 'redis-cli', '-a', 'thunderbolt-redis', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ===========================================================================
+  # MinIO - Local S3-Compatible Storage
+  # ===========================================================================
+  minio:
+    image: minio/minio:latest
+    container_name: thunderbolt-langfuse-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ['CMD', 'mc', 'ready', 'local']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # MinIO bucket initialization (runs once)
+  minio-init:
+    image: minio/mc:latest
+    container_name: thunderbolt-langfuse-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set myminio http://minio:9000 minioadmin minioadmin;
+      mc mb myminio/langfuse --ignore-existing;
+      exit 0;
+      "
+
+volumes:
+  postgres_data:
+    name: thunderbolt_langfuse_postgres
+  clickhouse_data:
+    name: thunderbolt_langfuse_clickhouse
+  clickhouse_logs:
+    name: thunderbolt_langfuse_clickhouse_logs
+  minio_data:
+    name: thunderbolt_langfuse_minio
+

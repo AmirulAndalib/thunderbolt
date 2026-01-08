@@ -1,0 +1,139 @@
+# =============================================================================
+# Thunderbolt Evaluation Configuration
+# =============================================================================
+# Standalone Promptfoo configuration for LLM evaluation.
+# No external dependencies - produces JSON artifacts for downstream processing.
+#
+# Features:
+#   - SSE stream parsing for tool call validation
+#   - LLM-as-judge with deterministic [0,1] scores
+#   - Runtime model selection via --var model=<id>
+#
+# Usage:
+#   bun run eval --model gpt-oss-120b
+#   bun run eval --model mistral-medium-3.1
+# =============================================================================
+# yaml-language-server: $schema=https://promptfoo.dev/config-schema.json
+
+description: Thunderbolt Evaluation Suite
+
+# =============================================================================
+# PROMPTS
+# =============================================================================
+prompts:
+  - label: user-query
+    raw: '{{query}}'
+
+# =============================================================================
+# SSE TRANSFORM
+# =============================================================================
+# Parses Server-Sent Events stream and extracts:
+#   - TOOLS_CALLED: YES/NO
+#   - TOOL_NAMES: comma-separated list
+#   - TOOL_ARGS: JSON arguments
+#   - RESPONSE: text content
+x-sse-transform: &sse_parser |
+  (json, text) => {
+    let content = '';
+    const toolCalls = [];
+    
+    for (const line of String(text || '').split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed.startsWith('data: ')) continue;
+      if (trimmed === 'data: [DONE]') break;
+      
+      try {
+        const evt = JSON.parse(trimmed.slice(6));
+        const delta = evt.choices?.[0]?.delta;
+        
+        if (delta?.content) {
+          content += delta.content;
+        }
+        
+        if (delta?.tool_calls) {
+          for (const tc of delta.tool_calls) {
+            let existing = toolCalls[tc.index];
+            if (!existing) {
+              existing = { id: '', name: '', arguments: '' };
+              toolCalls[tc.index] = existing;
+            }
+            if (tc.id) existing.id = tc.id;
+            if (tc.function?.name) existing.name = tc.function.name;
+            if (tc.function?.arguments) existing.arguments += tc.function.arguments;
+          }
+        }
+      } catch {}
+    }
+    
+    const validTools = toolCalls.filter(t => t && t.name);
+    
+    if (validTools.length > 0) {
+      const details = validTools.map(t => {
+        let args = t.arguments;
+        try { args = JSON.stringify(JSON.parse(t.arguments), null, 2); } catch {}
+        return `  - ${t.name}: ${args}`;
+      }).join('\n');
+      
+      return [
+        'TOOLS_CALLED: YES',
+        `TOOL_NAMES: ${validTools.map(t => t.name).join(', ')}`,
+        `TOOL_COUNT: ${validTools.length}`,
+        'TOOL_DETAILS:',
+        details,
+        '',
+        'RESPONSE:',
+        content.trim() || '(no text response)'
+      ].join('\n');
+    }
+    
+    return [
+      'TOOLS_CALLED: NO',
+      'TOOL_NAMES: (none)',
+      'TOOL_COUNT: 0',
+      '',
+      'RESPONSE:',
+      content.trim() || '(no text response)'
+    ].join('\n');
+  }
+
+# =============================================================================
+# PROVIDERS
+# =============================================================================
+providers:
+  - id: https
+    label: thunderbolt-backend # Model is set via --var model=<id>
+    config:
+      url: '{{BACKEND_URL | default("http://localhost:8000")}}/v1/chat/completions'
+      method: POST
+      headers:
+        Content-Type: application/json
+      body:
+        model: '{{model | default("mistral-medium-3.1")}}'
+        messages:
+          - role: user
+            content: '{{prompt}}'
+        stream: true
+        temperature: 0.2
+      transformResponse: *sse_parser
+      timeout: 120000
+
+# =============================================================================
+# DEFAULT TEST OPTIONS
+# =============================================================================
+# LLM-as-judge auto-detection (set via PROMPTFOO_DEFAULT_PROVIDER env var):
+#   1. ANTHROPIC_API_KEY → anthropic:messages:claude-sonnet-4-20250514
+#   2. OPENAI_API_KEY    → openai:gpt-4o
+#   3. Neither           → gpt-oss-120b via backend
+defaultTest:
+  options:
+    provider: 'anthropic:messages:claude-sonnet-4-20250514'
+
+# =============================================================================
+# TEST CASES
+# =============================================================================
+tests: file://dataset.yaml
+
+# =============================================================================
+# OUTPUT
+# =============================================================================
+outputPath: ./eval-results.json

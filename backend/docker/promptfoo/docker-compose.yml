@@ -1,0 +1,42 @@
+# =============================================================================
+# Promptfoo Evaluation Environment
+# =============================================================================
+# Isolated Docker environment for running evaluations.
+# Includes only Promptfoo UI for viewing results.
+#
+# The backend runs locally (bun run dev) - not containerized here.
+# Promptfoo CLI runs locally for evaluation execution.
+#
+# Usage:
+#   docker compose up -d         # Start Promptfoo UI
+#   bun run eval --model X       # Run evaluation (local)
+#   open http://localhost:15501  # View results
+# =============================================================================
+
+services:
+  # Promptfoo UI for viewing evaluation results
+  promptfoo:
+    image: ghcr.io/promptfoo/promptfoo:latest
+    container_name: thunderbolt-promptfoo
+    restart: unless-stopped
+    ports:
+      - '15501:3000'
+    volumes:
+      # Mount local promptfoo data directory
+      - promptfoo_data:/home/promptfoo/.promptfoo
+      # Mount evaluation results for viewing
+      - ../../src/evaluation:/app/evaluation:ro
+    environment:
+      # Chunk size for sharing results
+      PROMPTFOO_SHARE_CHUNK_SIZE: '10'
+    healthcheck:
+      test: ['CMD', 'wget', '--spider', '-q', 'http://localhost:3000']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  promptfoo_data:
+    name: thunderbolt_promptfoo_data
+
