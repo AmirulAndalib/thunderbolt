@@ -1,10 +1,12 @@
-import { updateSettings } from '@/dal'
+import { getChatMessages, updateSettings } from '@/dal'
 import { type MCPClient } from '@/lib/mcp-provider'
 import { trackEvent } from '@/lib/posthog'
-import type { AutomationRun, ChatThread, Model, ThunderboltUIMessage } from '@/types'
+import { convertDbChatMessageToUIMessage } from '@/lib/utils'
+import type { AutomationRun, ChatThread, Model, SaveMessagesFunction, ThunderboltUIMessage } from '@/types'
 import { create } from 'zustand'
 import type { Chat } from '@ai-sdk/react'
 import { useShallow } from 'zustand/react/shallow'
+import { createChatInstance } from './chat-instance'
 
 type ChatSession = {
   chatInstance: Chat<ThunderboltUIMessage>
@@ -23,6 +25,14 @@ type ChatStoreState = {
 
 type ChatStoreActions = {
   createSession(session: ChatSession): void
+  /**
+   * Recreates a chat session's Chat instance with fresh messages from the database.
+   * Skips if the session doesn't exist or is currently streaming.
+   * Used by the sync service to refresh sessions when new messages arrive.
+   * @param id - The chat thread ID
+   * @param saveMessages - The saveMessages function to use for the new instance
+   */
+  recreateSession(id: string, saveMessages: SaveMessagesFunction): Promise<void>
   setCurrentSessionId(id: string): void
   setMcpClients(mcpClients: MCPClient[]): void
   setModels(models: Model[]): void
@@ -52,6 +62,32 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
 
     nextSessions.set(session.id, session)
 
+    set({ sessions: nextSessions })
+  },
+
+  recreateSession: async (id, saveMessages) => {
+    const { sessions } = get()
+    const session = sessions.get(id)
+
+    // Skip if session doesn't exist
+    if (!session) return
+
+    // Skip if session is currently streaming
+    if (session.chatInstance.status === 'streaming') return
+
+    // Fetch fresh messages from the database
+    const freshMessages = await getChatMessages(id)
+
+    // Create a new Chat instance with the fresh messages
+    const newChatInstance = createChatInstance(
+      id,
+      freshMessages.map(convertDbChatMessageToUIMessage) as ThunderboltUIMessage[],
+      saveMessages,
+    )
+
+    // Update the session with the new instance
+    const nextSessions = new Map(get().sessions)
+    nextSessions.set(id, { ...session, chatInstance: newChatInstance })
     set({ sessions: nextSessions })
   },
 

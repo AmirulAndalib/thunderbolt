@@ -2,9 +2,11 @@ import { getSettings } from '@/dal'
 import { setupTestDatabase, teardownTestDatabase, resetTestDatabase } from '@/dal/test-utils'
 import {
   createMockAutomationRun,
+  createMockChatInstance,
   createMockChatInstanceWithValidation,
   createMockChatThread,
   createMockModel,
+  createMockSaveMessages,
   getCurrentSession,
   hydrateStore,
   resetStore,
@@ -309,6 +311,99 @@ describe('chat-store', () => {
 
       const session = getCurrentSession()
       expect(session?.selectedModel?.id).toBe('tracked-model')
+    })
+  })
+
+  describe('recreateSession', () => {
+    it('should silently skip if session does not exist', async () => {
+      const saveMessages = createMockSaveMessages()
+
+      // Should not throw
+      await useChatStore.getState().recreateSession('nonexistent-id', saveMessages)
+
+      // Store should remain unchanged
+      const storeState = useChatStore.getState()
+      expect(storeState.sessions.size).toBe(0)
+    })
+
+    it('should skip if session is currently streaming', async () => {
+      const streamingChatInstance = createMockChatInstance([], 'streaming')
+      const model = createMockModel()
+      const saveMessages = createMockSaveMessages()
+
+      hydrateStore({
+        chatInstance: streamingChatInstance,
+        chatThread: null,
+        id: 'test-id',
+        mcpClients: [],
+        models: [model],
+        selectedModel: model,
+        triggerData: null,
+      })
+
+      const originalInstance = getCurrentSession()?.chatInstance
+
+      await useChatStore.getState().recreateSession('test-id', saveMessages)
+
+      // Chat instance should remain the same (not recreated)
+      const session = getCurrentSession()
+      expect(session?.chatInstance).toBe(originalInstance)
+    })
+
+    it('should recreate chat instance with fresh messages when not streaming', async () => {
+      const originalMessages: ThunderboltUIMessage[] = [
+        { id: 'msg-1', role: 'user', parts: [{ type: 'text', text: 'Hello' }] },
+      ]
+      const chatInstance = createMockChatInstance(originalMessages, 'ready')
+      const model = createMockModel()
+      const saveMessages = createMockSaveMessages()
+
+      hydrateStore({
+        chatInstance,
+        chatThread: null,
+        id: 'test-id',
+        mcpClients: [],
+        models: [model],
+        selectedModel: model,
+        triggerData: null,
+      })
+
+      const originalInstance = getCurrentSession()?.chatInstance
+
+      // Mock getChatMessages to return empty array (simulating DB with no messages for this thread)
+      // The recreateSession will fetch from DB which will return an empty array in test environment
+
+      await useChatStore.getState().recreateSession('test-id', saveMessages)
+
+      // Chat instance should be different (recreated)
+      const session = getCurrentSession()
+      expect(session?.chatInstance).not.toBe(originalInstance)
+    })
+
+    it('should preserve other session properties when recreating', async () => {
+      const chatInstance = createMockChatInstance([], 'ready')
+      const model = createMockModel({ id: 'my-model' })
+      const chatThread = createMockChatThread({ id: 'thread-123', title: 'My Chat' })
+      const triggerData = createMockAutomationRun({ wasTriggeredByAutomation: true })
+      const saveMessages = createMockSaveMessages()
+
+      hydrateStore({
+        chatInstance,
+        chatThread,
+        id: 'test-id',
+        mcpClients: [],
+        models: [model],
+        selectedModel: model,
+        triggerData,
+      })
+
+      await useChatStore.getState().recreateSession('test-id', saveMessages)
+
+      const session = getCurrentSession()
+      // Other properties should be preserved
+      expect(session?.chatThread).toBe(chatThread)
+      expect(session?.selectedModel).toBe(model)
+      expect(session?.triggerData).toBe(triggerData)
     })
   })
 })

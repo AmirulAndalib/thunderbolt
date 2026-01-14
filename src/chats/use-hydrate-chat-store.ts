@@ -5,87 +5,29 @@ import {
   getDefaultModelForThread,
   getSettings,
   getTriggerPromptForThread,
-  isChatThreadDeleted,
-  saveMessagesWithContextUpdate,
 } from '@/dal'
-import { getOrCreateChatThread, updateChatThread } from '@/dal/chat-threads'
 import { useMCP } from '@/lib/mcp-provider'
-import { generateTitle } from '@/lib/title-generator'
 import { convertDbChatMessageToUIMessage } from '@/lib/utils'
-import type { SaveMessagesFunction, ThunderboltUIMessage } from '@/types'
-import { useQueryClient } from '@tanstack/react-query'
+import type { ThunderboltUIMessage } from '@/types'
 import { useState } from 'react'
-import { useNavigate } from 'react-router'
 import { useChatStore } from './chat-store'
 import { createChatInstance } from './chat-instance'
+import { useSaveMessages } from './use-save-messages'
 
 type UseHydrateChatStoreParams = {
   id: string
 }
 
 export const useHydrateChatStore = ({ id }: UseHydrateChatStoreParams) => {
-  const navigate = useNavigate()
-
   const [isReady, setIsReady] = useState(false)
 
   const { getEnabledClients } = useMCP()
+  const { createSaveMessages } = useSaveMessages()
 
-  const queryClient = useQueryClient()
-
-  const updateThreadTitle = async (messages: ThunderboltUIMessage[], threadId: string) => {
-    const firstUserMessage = messages.find((msg) => msg.role === 'user')
-    if (!firstUserMessage) return
-
-    const textContent = firstUserMessage.parts
-      ?.filter((part) => part.type === 'text')
-      .map((part) => (part.type === 'text' ? part.text : ''))
-      .join(' ')
-
-    if (!textContent) return
-
-    const title = await generateTitle(textContent)
-    await updateChatThread(threadId, { title })
-
-    // Also invalidate chat threads to update the sidebar
-    queryClient.invalidateQueries({ queryKey: ['chatThreads'] })
-  }
-
-  const saveMessages: SaveMessagesFunction = async ({ id, messages }) => {
-    const { sessions, updateSession } = useChatStore.getState()
-
-    const session = sessions.get(id)
-
-    if (!session) throw new Error('No session found')
-
-    // Fetch thread info to check if we need to generate a title
-    const thread = await getOrCreateChatThread(id, session.selectedModel.id)
-
-    // Save messages and update context size using DAL
-    await saveMessagesWithContextUpdate(id, messages)
-
-    // Invalidate context size query to trigger re-fetch
-    queryClient.invalidateQueries({ queryKey: ['contextSize', id] })
-
-    // Generate title in background if needed
-    if (thread?.title === 'New Chat') {
-      updateThreadTitle(messages, id)
-    }
-
-    if (!session.chatThread) {
-      updateSession(id, { chatThread: thread })
-      navigate(`/chats/${id}`, { relative: 'path' })
-    }
-  }
+  const saveMessages = createSaveMessages()
 
   const hydrateChatStore = async () => {
     const { createSession, sessions, setCurrentSessionId, setMcpClients, setModels } = useChatStore.getState()
-
-    // Check if this ID belongs to a deleted chat - redirect to 404 if so
-    const isDeleted = await isChatThreadDeleted(id)
-    if (isDeleted) {
-      navigate('/not-found', { replace: true })
-      return
-    }
 
     // If the session already exists, set the current session id and update the mcp clients and models
     if (sessions.has(id)) {

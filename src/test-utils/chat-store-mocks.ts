@@ -1,7 +1,12 @@
 import { useChatStore } from '@/chats/chat-store'
-import type { AutomationRun, ChatThread, Model, ThunderboltUIMessage } from '@/types'
+import type { AutomationRun, ChatThread, Model, SaveMessagesFunction, ThunderboltUIMessage } from '@/types'
 import { type Chat } from '@ai-sdk/react'
 import { mock } from 'bun:test'
+
+/**
+ * Creates a mock saveMessages function for testing
+ */
+export const createMockSaveMessages = (): SaveMessagesFunction => mock(async () => {})
 
 /**
  * Creates a mock Model for testing
