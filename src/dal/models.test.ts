@@ -1,5 +1,5 @@
 import { DatabaseSingleton } from '@/db/singleton'
-import { chatMessagesTable, chatThreadsTable, modelsTable } from '@/db/tables'
+import { chatMessagesTable, chatThreadsTable, modelsTable, promptsTable, triggersTable } from '@/db/tables'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test'
 import { eq } from 'drizzle-orm'
 import { v7 as uuidv7 } from 'uuid'
@@ -14,8 +14,10 @@ import {
   getSystemModel,
   updateModel,
 } from './models'
+import { getAllPrompts, getPrompt } from './prompts'
 import { updateSettings } from './settings'
 import { resetTestDatabase, setupTestDatabase, teardownTestDatabase } from './test-utils'
+import { getAllEnabledTriggers } from './triggers'
 
 beforeAll(async () => {
   await setupTestDatabase()
@@ -410,7 +412,7 @@ describe('Models DAL', () => {
   })
 
   describe('deleteModel', () => {
-    it('should delete a model by id', async () => {
+    it('should soft delete a model by id (set deletedAt)', async () => {
       const db = DatabaseSingleton.instance.db
       const modelId = uuidv7()
 
@@ -429,16 +431,21 @@ describe('Models DAL', () => {
 
       await deleteModel(modelId)
 
-      // Verify model is deleted
+      // Verify model is soft deleted (not returned by getModel)
       const modelAfter = await getModel(modelId)
       expect(modelAfter).toBe(null)
+
+      // But should still exist in database with deletedAt set
+      const rawModel = await db.select().from(modelsTable).where(eq(modelsTable.id, modelId)).get()
+      expect(rawModel).not.toBeUndefined()
+      expect(rawModel?.deletedAt).not.toBeNull()
     })
 
     it('should not throw when deleting non-existent model', async () => {
       await expect(deleteModel('non-existent-id')).resolves.toBeUndefined()
     })
 
-    it('should only delete the specified model', async () => {
+    it('should only soft delete the specified model', async () => {
       const db = DatabaseSingleton.instance.db
       const modelId1 = uuidv7()
       const modelId2 = uuidv7()
@@ -464,11 +471,261 @@ describe('Models DAL', () => {
 
       await deleteModel(modelId1)
 
-      // Verify only model 1 is deleted
+      // Verify only model 1 is soft deleted
       const model1 = await getModel(modelId1)
       const model2 = await getModel(modelId2)
       expect(model1).toBe(null)
       expect(model2).not.toBe(null)
+
+      // Both should still exist in database
+      const rawModels = await db.select().from(modelsTable)
+      expect(rawModels).toHaveLength(2)
+    })
+
+    it('should not return soft-deleted model via getAllModels', async () => {
+      const db = DatabaseSingleton.instance.db
+      const modelId = uuidv7()
+
+      await db.insert(modelsTable).values({
+        id: modelId,
+        provider: 'openai',
+        name: 'Model to delete',
+        model: 'gpt-4',
+        isSystem: 0,
+        enabled: 1,
+      })
+
+      // Verify model exists
+      const modelsBefore = await getAllModels()
+      expect(modelsBefore).toHaveLength(1)
+
+      await deleteModel(modelId)
+
+      // Verify model is not returned by getAllModels
+      const modelsAfter = await getAllModels()
+      expect(modelsAfter).toHaveLength(0)
+    })
+
+    it('should not return soft-deleted model via getAvailableModels', async () => {
+      const db = DatabaseSingleton.instance.db
+      const modelId = uuidv7()
+
+      await db.insert(modelsTable).values({
+        id: modelId,
+        provider: 'openai',
+        name: 'Model to delete',
+        model: 'gpt-4',
+        isSystem: 0,
+        enabled: 1,
+      })
+
+      // Verify model exists
+      const modelsBefore = await getAvailableModels()
+      expect(modelsBefore).toHaveLength(1)
+
+      await deleteModel(modelId)
+
+      // Verify model is not returned by getAvailableModels
+      const modelsAfter = await getAvailableModels()
+      expect(modelsAfter).toHaveLength(0)
+    })
+
+    it('should preserve original deletedAt timestamp for already-deleted model', async () => {
+      const db = DatabaseSingleton.instance.db
+      const modelId = uuidv7()
+      const originalDeletedAt = Date.now() - 10000
+
+      await db.insert(modelsTable).values({
+        id: modelId,
+        provider: 'openai',
+        name: 'Already deleted model',
+        model: 'gpt-4',
+        isSystem: 0,
+        enabled: 1,
+        deletedAt: originalDeletedAt,
+      })
+
+      // Call delete again on already-deleted model
+      await deleteModel(modelId)
+
+      // Verify original deletedAt is preserved
+      const rawModel = await db.select().from(modelsTable).where(eq(modelsTable.id, modelId)).get()
+      expect(rawModel?.deletedAt).toBe(originalDeletedAt)
+    })
+
+    it('should soft-delete prompts that reference the model (cascade)', async () => {
+      const db = DatabaseSingleton.instance.db
+      const modelId = uuidv7()
+      const promptId = uuidv7()
+
+      // Create model
+      await db.insert(modelsTable).values({
+        id: modelId,
+        provider: 'openai',
+        name: 'Model to delete',
+        model: 'gpt-4',
+        isSystem: 0,
+        enabled: 1,
+      })
+
+      // Create prompt referencing this model
+      await db.insert(promptsTable).values({
+        id: promptId,
+        prompt: 'Test prompt',
+        modelId: modelId,
+      })
+
+      // Verify prompt exists
+      const promptBefore = await getPrompt(promptId)
+      expect(promptBefore).not.toBe(null)
+
+      // Delete the model
+      await deleteModel(modelId)
+
+      // Verify prompt is soft-deleted (not returned by getPrompt)
+      const promptAfter = await getPrompt(promptId)
+      expect(promptAfter).toBe(null)
+
+      // But prompt should still exist in database with deletedAt set
+      const rawPrompt = await db.select().from(promptsTable).where(eq(promptsTable.id, promptId)).get()
+      expect(rawPrompt).not.toBeUndefined()
+      expect(rawPrompt?.deletedAt).not.toBeNull()
+    })
+
+    it('should soft-delete triggers of prompts that reference the model (cascade)', async () => {
+      const db = DatabaseSingleton.instance.db
+      const modelId = uuidv7()
+      const promptId = uuidv7()
+      const triggerId = uuidv7()
+
+      // Create model
+      await db.insert(modelsTable).values({
+        id: modelId,
+        provider: 'openai',
+        name: 'Model to delete',
+        model: 'gpt-4',
+        isSystem: 0,
+        enabled: 1,
+      })
+
+      // Create prompt referencing this model
+      await db.insert(promptsTable).values({
+        id: promptId,
+        prompt: 'Test prompt',
+        modelId: modelId,
+      })
+
+      // Create trigger for this prompt
+      await db.insert(triggersTable).values({
+        id: triggerId,
+        triggerType: 'time',
+        triggerTime: '09:00',
+        promptId: promptId,
+        isEnabled: 1,
+      })
+
+      // Verify trigger exists and is enabled
+      const triggersBefore = await getAllEnabledTriggers()
+      expect(triggersBefore).toHaveLength(1)
+
+      // Delete the model
+      await deleteModel(modelId)
+
+      // Verify trigger is soft-deleted (not returned by getAllEnabledTriggers)
+      const triggersAfter = await getAllEnabledTriggers()
+      expect(triggersAfter).toHaveLength(0)
+
+      // But trigger should still exist in database with deletedAt set
+      const rawTrigger = await db.select().from(triggersTable).where(eq(triggersTable.id, triggerId)).get()
+      expect(rawTrigger).not.toBeUndefined()
+      expect(rawTrigger?.deletedAt).not.toBeNull()
+    })
+
+    it('should not affect prompts referencing other models (cascade only targets matching modelId)', async () => {
+      const db = DatabaseSingleton.instance.db
+      const modelId1 = uuidv7()
+      const modelId2 = uuidv7()
+      const promptId1 = uuidv7()
+      const promptId2 = uuidv7()
+
+      // Create two models
+      await db.insert(modelsTable).values([
+        { id: modelId1, provider: 'openai', name: 'Model 1', model: 'gpt-4', isSystem: 0, enabled: 1 },
+        { id: modelId2, provider: 'anthropic', name: 'Model 2', model: 'claude-3', isSystem: 0, enabled: 1 },
+      ])
+
+      // Create prompts referencing different models
+      await db.insert(promptsTable).values([
+        { id: promptId1, prompt: 'Prompt for model 1', modelId: modelId1 },
+        { id: promptId2, prompt: 'Prompt for model 2', modelId: modelId2 },
+      ])
+
+      // Delete only model 1
+      await deleteModel(modelId1)
+
+      // Verify only prompt 1 is soft-deleted
+      const prompt1 = await getPrompt(promptId1)
+      const prompt2 = await getPrompt(promptId2)
+      expect(prompt1).toBe(null)
+      expect(prompt2).not.toBe(null)
+    })
+
+    it('should handle model with multiple prompts and triggers (full cascade)', async () => {
+      const db = DatabaseSingleton.instance.db
+      const modelId = uuidv7()
+      const promptId1 = uuidv7()
+      const promptId2 = uuidv7()
+      const triggerId1 = uuidv7()
+      const triggerId2 = uuidv7()
+      const triggerId3 = uuidv7()
+
+      // Create model
+      await db.insert(modelsTable).values({
+        id: modelId,
+        provider: 'openai',
+        name: 'Model to delete',
+        model: 'gpt-4',
+        isSystem: 0,
+        enabled: 1,
+      })
+
+      // Create two prompts referencing this model
+      await db.insert(promptsTable).values([
+        { id: promptId1, prompt: 'Prompt 1', modelId: modelId },
+        { id: promptId2, prompt: 'Prompt 2', modelId: modelId },
+      ])
+
+      // Create multiple triggers for these prompts
+      await db.insert(triggersTable).values([
+        { id: triggerId1, triggerType: 'time', triggerTime: '09:00', promptId: promptId1, isEnabled: 1 },
+        { id: triggerId2, triggerType: 'time', triggerTime: '12:00', promptId: promptId1, isEnabled: 1 },
+        { id: triggerId3, triggerType: 'time', triggerTime: '18:00', promptId: promptId2, isEnabled: 1 },
+      ])
+
+      // Verify all entities exist
+      const promptsBefore = await getAllPrompts()
+      const triggersBefore = await getAllEnabledTriggers()
+      expect(promptsBefore).toHaveLength(2)
+      expect(triggersBefore).toHaveLength(3)
+
+      // Delete the model
+      await deleteModel(modelId)
+
+      // Verify all prompts are soft-deleted
+      const promptsAfter = await getAllPrompts()
+      expect(promptsAfter).toHaveLength(0)
+
+      // Verify all triggers are soft-deleted
+      const triggersAfter = await getAllEnabledTriggers()
+      expect(triggersAfter).toHaveLength(0)
+
+      // Verify all records still exist in database with deletedAt set
+      const rawPrompts = await db.select().from(promptsTable)
+      const rawTriggers = await db.select().from(triggersTable)
+      expect(rawPrompts).toHaveLength(2)
+      expect(rawTriggers).toHaveLength(3)
+      expect(rawPrompts.every((p) => p.deletedAt !== null)).toBe(true)
+      expect(rawTriggers.every((t) => t.deletedAt !== null)).toBe(true)
     })
   })
 

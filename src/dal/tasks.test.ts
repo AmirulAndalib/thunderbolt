@@ -168,7 +168,7 @@ describe('Tasks DAL', () => {
   })
 
   describe('deleteTask', () => {
-    it('should delete a task by id', async () => {
+    it('should soft delete a task by id (set deletedAt)', async () => {
       const db = DatabaseSingleton.instance.db
       const taskId = uuidv7()
 
@@ -185,18 +185,66 @@ describe('Tasks DAL', () => {
 
       await deleteTask(taskId)
 
-      // Verify task is deleted
+      // Verify task is soft deleted (not in getIncompleteTasks)
       const tasksAfter = await getIncompleteTasks()
       expect(tasksAfter).toHaveLength(0)
+
+      // But should still exist in database with deletedAt set
+      const rawTasks = await db.select().from(tasksTable)
+      expect(rawTasks).toHaveLength(1)
+      expect(rawTasks[0]?.deletedAt).not.toBeNull()
     })
 
     it('should not throw when deleting non-existent task', async () => {
       await expect(deleteTask('non-existent-id')).resolves.toBeUndefined()
     })
+
+    it('should not return soft-deleted task via getAllTasks', async () => {
+      const db = DatabaseSingleton.instance.db
+      const taskId = uuidv7()
+
+      await db.insert(tasksTable).values({
+        id: taskId,
+        item: 'Task to delete',
+        isComplete: 0,
+        order: 1,
+      })
+
+      // Verify task exists
+      const tasksBefore = await getAllTasks()
+      expect(tasksBefore).toHaveLength(1)
+
+      await deleteTask(taskId)
+
+      // Verify task is not returned by getAllTasks
+      const tasksAfter = await getAllTasks()
+      expect(tasksAfter).toHaveLength(0)
+    })
+
+    it('should preserve original deletedAt timestamp for already-deleted task', async () => {
+      const db = DatabaseSingleton.instance.db
+      const taskId = uuidv7()
+      const originalDeletedAt = Date.now() - 10000
+
+      await db.insert(tasksTable).values({
+        id: taskId,
+        item: 'Already deleted task',
+        isComplete: 0,
+        order: 1,
+        deletedAt: originalDeletedAt,
+      })
+
+      // Call delete again on already-deleted task
+      await deleteTask(taskId)
+
+      // Verify original deletedAt is preserved
+      const rawTask = await db.select().from(tasksTable).get()
+      expect(rawTask?.deletedAt).toBe(originalDeletedAt)
+    })
   })
 
   describe('deleteTasks', () => {
-    it('should delete multiple tasks by ids', async () => {
+    it('should soft delete multiple tasks by ids (set deletedAt)', async () => {
       const db = DatabaseSingleton.instance.db
       const taskId1 = uuidv7()
       const taskId2 = uuidv7()
@@ -214,10 +262,18 @@ describe('Tasks DAL', () => {
 
       await deleteTasks([taskId1, taskId3])
 
-      // Verify only task 2 remains
+      // Verify only task 2 is visible
       const tasksAfter = await getIncompleteTasks()
       expect(tasksAfter).toHaveLength(1)
       expect(tasksAfter[0]?.id).toBe(taskId2)
+
+      // But all should still exist in database
+      const rawTasks = await db.select().from(tasksTable)
+      expect(rawTasks).toHaveLength(3)
+
+      // Two should have deletedAt set
+      const deletedTasks = rawTasks.filter((t) => t.deletedAt !== null)
+      expect(deletedTasks).toHaveLength(2)
     })
 
     it('should handle empty array', async () => {
@@ -240,6 +296,35 @@ describe('Tasks DAL', () => {
 
     it('should not throw when deleting non-existent tasks', async () => {
       await expect(deleteTasks(['non-existent-1', 'non-existent-2'])).resolves.toBeUndefined()
+    })
+
+    it('should preserve original deletedAt timestamps for already-deleted tasks', async () => {
+      const db = DatabaseSingleton.instance.db
+      const taskId1 = uuidv7()
+      const taskId2 = uuidv7()
+      const taskId3 = uuidv7()
+      const originalDeletedAt = Date.now() - 10000
+
+      await db.insert(tasksTable).values([
+        { id: taskId1, item: 'Already deleted', isComplete: 0, order: 1, deletedAt: originalDeletedAt },
+        { id: taskId2, item: 'Active task', isComplete: 0, order: 2, deletedAt: null },
+        { id: taskId3, item: 'Another active', isComplete: 0, order: 3, deletedAt: null },
+      ])
+
+      // Delete all three tasks (one already deleted, two active)
+      await deleteTasks([taskId1, taskId2, taskId3])
+
+      // Verify original deletedAt is preserved for already-deleted task
+      const rawTasks = await db.select().from(tasksTable)
+      const alreadyDeleted = rawTasks.find((t) => t.id === taskId1)
+      const newlyDeleted1 = rawTasks.find((t) => t.id === taskId2)
+      const newlyDeleted2 = rawTasks.find((t) => t.id === taskId3)
+
+      expect(alreadyDeleted?.deletedAt).toBe(originalDeletedAt)
+      expect(newlyDeleted1?.deletedAt).not.toBe(originalDeletedAt)
+      expect(newlyDeleted1?.deletedAt).not.toBeNull()
+      expect(newlyDeleted2?.deletedAt).not.toBe(originalDeletedAt)
+      expect(newlyDeleted2?.deletedAt).not.toBeNull()
     })
   })
 
