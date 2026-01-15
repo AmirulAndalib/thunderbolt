@@ -22,7 +22,7 @@ export const NavigationMenu = ({
       <SidebarMenuItem>
         <SidebarMenuButton
           onClick={onCreateNewChat}
-          tooltip="New Chat"
+          tooltip="New Chat (TEST UPDATE)"
           className="cursor-pointer"
           isActive={currentPath === '/chats/new'}
         >
