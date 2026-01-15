@@ -246,38 +246,11 @@ jobs:
             src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg
             src-tauri/target/x86_64-apple-darwin/release/bundle/macos/*.app.tar.gz
 
-      # Find the update bundle file path
-      - name: Find update bundle
-        id: find-bundle
-        shell: bash
-        run: |
-          echo "=== Debug: Looking for update bundles ==="
-          echo "Runner OS: ${{ runner.os }}"
-          echo "Matrix target: ${{ matrix.target }}"
-
-          if [[ "${{ runner.os }}" == "macOS" ]]; then
-            echo "=== Contents of bundle/macos: ==="
-            ls -la src-tauri/target/${{ matrix.target }}/release/bundle/macos/ || echo "Directory not found"
-            FILE=$(find src-tauri/target/${{ matrix.target }}/release/bundle/macos -name "*.app.tar.gz" 2>/dev/null | head -1)
-          elif [[ "${{ runner.os }}" == "Linux" ]]; then
-            echo "=== Contents of bundle/appimage: ==="
-            ls -la src-tauri/target/release/bundle/appimage/ || echo "Directory not found"
-            FILE=$(find src-tauri/target/release/bundle/appimage -name "*.AppImage" 2>/dev/null | head -1)
-          else
-            echo "=== Contents of bundle/nsis: ==="
-            ls -la src-tauri/target/${{ matrix.target }}/release/bundle/nsis/ || echo "Directory not found"
-            FILE=$(find src-tauri/target/${{ matrix.target }}/release/bundle/nsis -name "*.exe" 2>/dev/null | head -1)
-          fi
-
-          echo "=== Found file: $FILE ==="
-          echo "file=$FILE" >> $GITHUB_OUTPUT
-
       # Upload to CrabNebula Cloud for auto-updates
       - name: Upload to CrabNebula Cloud
-        if: steps.find-bundle.outputs.file != ''
         uses: crabnebula-dev/cloud-release@v0.2.0
         with:
-          command: release upload thunderbird/thunderbolt ${{ inputs.version }} --file ${{ steps.find-bundle.outputs.file }}
+          command: release upload thunderbird/thunderbolt ${{ inputs.version }} --framework tauri
           api-key: ${{ secrets.CRABNEBULA_CLOUD_API_KEY }}
 
   publish:
