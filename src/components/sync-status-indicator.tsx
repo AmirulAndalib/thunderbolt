@@ -1,3 +1,4 @@
+import { useAuth } from '@/contexts/auth-context'
 import type { SyncStatus } from '@/db/sync-service'
 import { useSyncService } from '@/hooks/use-sync-service'
 import { cn } from '@/lib/utils'
@@ -57,10 +58,13 @@ type SyncStatusIndicatorProps = {
 /**
  * Sync status indicator showing the current sync state
  * Displays an icon with optional label and allows manual sync trigger
- * Includes a switch to enable/disable sync
+ * Includes a switch to enable/disable sync (requires login)
  */
 export const SyncStatusIndicator: FC<SyncStatusIndicatorProps> = ({ className, showLabel = false, size = 'md' }) => {
   const { status, isSupported, isEnabled, toggleEnabled, forceSync } = useSyncService()
+  const authClient = useAuth()
+  const { data: session } = authClient.useSession()
+  const isLoggedIn = !!session?.user
 
   // Don't show anything if sync is not supported
   if (!isSupported) {
@@ -71,7 +75,14 @@ export const SyncStatusIndicator: FC<SyncStatusIndicatorProps> = ({ className, s
   const Icon = config.icon
   const iconSize = size === 'sm' ? 14 : 16
   const isVersionMismatch = status === 'version_mismatch'
-  const canSync = isEnabled && status !== 'syncing' && status !== 'connecting' && !isVersionMismatch
+  const canSync = isEnabled && isLoggedIn && status !== 'syncing' && status !== 'connecting' && !isVersionMismatch
+
+  const getSwitchTooltip = () => {
+    if (!isLoggedIn) {
+      return 'Sign in to enable sync'
+    }
+    return isEnabled ? 'Disable sync' : 'Enable sync'
+  }
 
   return (
     <div className={cn('flex items-center gap-1', className)}>
@@ -79,11 +90,16 @@ export const SyncStatusIndicator: FC<SyncStatusIndicatorProps> = ({ className, s
         <Tooltip>
           <TooltipTrigger asChild>
             <div className="flex items-center">
-              <Switch checked={isEnabled} onCheckedChange={toggleEnabled} aria-label="Toggle sync" />
+              <Switch
+                checked={isEnabled}
+                onCheckedChange={toggleEnabled}
+                disabled={!isLoggedIn}
+                aria-label="Toggle sync"
+              />
             </div>
           </TooltipTrigger>
           <TooltipContent side="bottom">
-            <span>{isEnabled ? 'Disable sync' : 'Enable sync'}</span>
+            <span>{getSwitchTooltip()}</span>
           </TooltipContent>
         </Tooltip>
       </TooltipProvider>
@@ -96,13 +112,13 @@ export const SyncStatusIndicator: FC<SyncStatusIndicatorProps> = ({ className, s
               size="sm"
               className="gap-1.5 px-2"
               onClick={() => canSync && forceSync()}
-              disabled={!isEnabled}
+              disabled={!isEnabled || !isLoggedIn}
             >
               <Icon
                 size={iconSize}
                 className={cn(
                   config.color,
-                  isEnabled && (status === 'syncing' || status === 'connecting') && 'animate-spin',
+                  isEnabled && isLoggedIn && (status === 'syncing' || status === 'connecting') && 'animate-spin',
                 )}
                 aria-hidden="true"
               />
@@ -112,7 +128,9 @@ export const SyncStatusIndicator: FC<SyncStatusIndicatorProps> = ({ className, s
             </Button>
           </TooltipTrigger>
           <TooltipContent side="bottom" className="max-w-xs">
-            {!isEnabled ? (
+            {!isLoggedIn ? (
+              <span>Sign in to enable sync</span>
+            ) : !isEnabled ? (
               <span>Sync is disabled</span>
             ) : isVersionMismatch ? (
               <div className="flex flex-col gap-1">

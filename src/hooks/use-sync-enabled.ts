@@ -9,12 +9,12 @@ const STORAGE_KEY = 'thunderbolt_sync_enabled'
 
 /**
  * Get the current sync enabled state from localStorage
- * Defaults to true (sync enabled by default)
+ * Defaults to false (sync disabled until user logs in and enables it)
  */
 const getSyncEnabled = (): boolean => {
   const stored = localStorage.getItem(STORAGE_KEY)
-  // Default to true if not set
-  if (stored === null) return true
+  // Default to false if not set - sync requires authentication
+  if (stored === null) return false
   return stored === 'true'
 }
 

@@ -3,6 +3,7 @@
  * Provides real-time change streaming between devices via persistent WebSocket connection
  */
 
+import { getAuthToken } from '@/lib/auth-token'
 import type { CRSQLChange } from './crsqlite-worker'
 import { getLatestMigrationVersion } from './migrate'
 import { DatabaseSingleton } from './singleton'
@@ -31,7 +32,7 @@ export type SerializedChange = {
  * WebSocket message types
  */
 type WSMessage =
-  | { type: 'auth'; siteId: string; migrationVersion?: string }
+  | { type: 'auth'; siteId: string; migrationVersion?: string; token?: string }
   | { type: 'push'; changes: SerializedChange[]; dbVersion: string }
   | { type: 'pull'; since: string }
 
@@ -222,14 +223,16 @@ export class SyncService {
         console.info('WebSocket connected, authenticating...')
         this.reconnectAttempts = 0
 
-        // Authenticate
+        // Authenticate with bearer token
         const siteId = await this.getSiteId()
         const migrationVersion = getLatestMigrationVersion()
+        const token = getAuthToken()
 
         this.send({
           type: 'auth',
           siteId,
           migrationVersion,
+          token: token ?? undefined,
         })
       }
 

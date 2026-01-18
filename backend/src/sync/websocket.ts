@@ -33,6 +33,7 @@ type WSMessage =
       type: 'auth'
       siteId: string
       migrationVersion?: string
+      token?: string
     }
   | {
       type: 'push'
@@ -101,32 +102,6 @@ const compareMigrationVersions = (a: string | null, b: string | null): number =>
   return getVersionNumber(a) - getVersionNumber(b)
 }
 
-/**
- * Mock user for sync integration testing
- * TODO: Replace with real authentication once CORS is resolved
- */
-const MOCK_USER = {
-  id: 'mock-user-00000000-0000-0000-0000-000000000001',
-  email: 'mock-user@thunderbolt.local',
-  name: 'Mock User',
-}
-
-/**
- * Ensure mock user exists in database (for development/testing)
- */
-const ensureMockUserExists = async (database: typeof DbType) => {
-  const existing = await database.select({ id: user.id }).from(user).where(eq(user.id, MOCK_USER.id)).limit(1)
-
-  if (existing.length === 0) {
-    await database.insert(user).values({
-      id: MOCK_USER.id,
-      email: MOCK_USER.email,
-      name: MOCK_USER.name,
-      emailVerified: true,
-    })
-  }
-}
-
 // Store connected clients by userId for broadcasting
 const connectedClients = new Map<string, Set<ConnectedClient>>()
 
@@ -150,14 +125,23 @@ const broadcastToUser = (userId: string, senderSiteId: string, message: WSRespon
 }
 
 /**
+ * Extended WebSocket data for tracking authentication state
+ */
+type WSData = {
+  authenticated: boolean
+  client?: ConnectedClient
+}
+
+/**
  * Create WebSocket sync routes for real-time database synchronization
  */
-export const createSyncWebSocketRoutes = (database: typeof DbType, _auth: Auth) => {
+export const createSyncWebSocketRoutes = (database: typeof DbType, auth: Auth) => {
   return new Elysia({ prefix: '/sync' }).ws('/ws', {
     body: t.Object({
       type: t.String(),
       siteId: t.Optional(t.String()),
       migrationVersion: t.Optional(t.String()),
+      token: t.Optional(t.String()),
       changes: t.Optional(t.Array(t.Any())),
       dbVersion: t.Optional(t.String()),
       since: t.Optional(t.String()),
@@ -165,22 +149,48 @@ export const createSyncWebSocketRoutes = (database: typeof DbType, _auth: Auth) 
 
     open(ws) {
       // Store connection temporarily - will be associated with user after auth
-      const wsData = ws as unknown as { data: { authenticated: boolean; client?: ConnectedClient } }
+      const wsData = ws as unknown as { data: WSData }
       wsData.data = { authenticated: false }
     },
 
     async message(ws, rawMessage) {
-      const wsData = ws as unknown as { data: { authenticated: boolean; client?: ConnectedClient } }
+      const wsData = ws as unknown as { data: WSData }
       const message = rawMessage as unknown as WSMessage
 
       try {
         if (message.type === 'auth') {
-          // Handle authentication
-          // TODO: Use real auth from headers/cookies when available
-          await ensureMockUserExists(database)
-          const authUser = MOCK_USER
+          const { siteId, migrationVersion, token } = message
 
-          const { siteId, migrationVersion } = message
+          // Validate bearer token from auth message
+          if (!token) {
+            ws.send(
+              JSON.stringify({
+                type: 'auth_error',
+                error: 'No auth token provided',
+              } satisfies WSResponse),
+            )
+            ws.close()
+            return
+          }
+
+          // Create headers with bearer token for session validation
+          const headers = new Headers({
+            Authorization: `Bearer ${token}`,
+          })
+
+          const session = await auth.api.getSession({ headers })
+          if (!session) {
+            ws.send(
+              JSON.stringify({
+                type: 'auth_error',
+                error: 'Not authenticated',
+              } satisfies WSResponse),
+            )
+            ws.close()
+            return
+          }
+
+          const authUser = session.user
 
           // Check migration version
           const currentUser = await database

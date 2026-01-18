@@ -40,46 +40,15 @@ const compareMigrationVersions = (a: string | null, b: string | null): number =>
 }
 
 /**
- * Mock user for sync integration testing
- * TODO: Replace with real authentication once CORS is resolved
- */
-const MOCK_USER = {
-  id: 'mock-user-00000000-0000-0000-0000-000000000001',
-  email: 'mock-user@thunderbolt.local',
-  name: 'Mock User',
-}
-
-/**
- * Ensure mock user exists in database (for development/testing)
- */
-const ensureMockUserExists = async (database: typeof DbType) => {
-  const existing = await database.select({ id: user.id }).from(user).where(eq(user.id, MOCK_USER.id)).limit(1)
-
-  if (existing.length === 0) {
-    await database.insert(user).values({
-      id: MOCK_USER.id,
-      email: MOCK_USER.email,
-      name: MOCK_USER.name,
-      emailVerified: true,
-    })
-  }
-}
-
-/**
  * Helper to get authenticated user from request
- * Currently returns mock user for testing - bypasses real auth
+ * Returns null if not authenticated
  */
-const getAuthenticatedUser = async (database: typeof DbType, _auth: Auth, _headers: Headers) => {
-  // TODO: Restore real authentication once CORS is resolved
-  // const session = await auth.api.getSession({ headers })
-  // if (!session) {
-  //   return null
-  // }
-  // return session.user
-
-  // Ensure mock user exists for development
-  await ensureMockUserExists(database)
-  return MOCK_USER
+const getAuthenticatedUser = async (_database: typeof DbType, auth: Auth, headers: Headers) => {
+  const session = await auth.api.getSession({ headers })
+  if (!session) {
+    return null
+  }
+  return session.user
 }
 
 /**

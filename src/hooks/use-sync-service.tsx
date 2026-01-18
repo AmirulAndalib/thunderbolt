@@ -4,6 +4,7 @@
 
 import { useChatStore } from '@/chats/chat-store'
 import { useSaveMessages } from '@/chats/use-save-messages'
+import { useAuth } from '@/contexts/auth-context'
 import { getSyncService, initSyncService, type SyncStatus } from '@/db/sync-service'
 import { DatabaseSingleton } from '@/db/singleton'
 import { useSettings } from '@/hooks/use-settings'
@@ -64,18 +65,22 @@ export type UseSyncServiceResult = {
 /**
  * Hook for managing the WebSocket sync service
  * Automatically initializes and starts the sync service when the app is ready
+ * Requires user to be logged in for sync to work
  */
 export const useSyncService = (): UseSyncServiceResult => {
   const { cloudUrl } = useSettings({ cloud_url: 'http://localhost:8000/v1' })
   const queryClient = useQueryClient()
   const { createSaveMessages } = useSaveMessages()
   const { isEnabled, toggle: toggleEnabled } = useSyncEnabled()
+  const authClient = useAuth()
+  const { data: session } = authClient.useSession()
   const [status, setStatus] = useState<SyncStatus>('idle')
   const [isRunning, setIsRunning] = useState(false)
   const [lastError, setLastError] = useState<Error | null>(null)
   const [requiredVersion, setRequiredVersion] = useState<string | null>(null)
 
   const isSupported = DatabaseSingleton.instance.isInitialized && DatabaseSingleton.instance.supportsSyncing
+  const isLoggedIn = !!session?.user
 
   // Use ref to avoid recreating callbacks when createSaveMessages changes
   const createSaveMessagesRef = useRef(createSaveMessages)
@@ -121,8 +126,8 @@ export const useSyncService = (): UseSyncServiceResult => {
 
   // Initialize and start sync service
   useEffect(() => {
-    // Don't start if sync is disabled, not supported, or no cloud URL
-    if (!isEnabled || !isSupported || !cloudUrl.value) {
+    // Don't start if sync is disabled, not supported, no cloud URL, or user not logged in
+    if (!isEnabled || !isSupported || !cloudUrl.value || !isLoggedIn) {
       // If we have an existing service and sync was disabled, stop it
       const existingService = getSyncService()
       if (existingService) {
@@ -163,7 +168,7 @@ export const useSyncService = (): UseSyncServiceResult => {
       service.stop()
       setIsRunning(false)
     }
-  }, [isEnabled, isSupported, cloudUrl.value, invalidateQueriesForTables, recreateChatSessions])
+  }, [isEnabled, isSupported, cloudUrl.value, isLoggedIn, invalidateQueriesForTables, recreateChatSessions])
 
   const forceSync = useCallback(async () => {
     const service = getSyncService()

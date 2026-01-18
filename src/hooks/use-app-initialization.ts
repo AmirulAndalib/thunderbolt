@@ -4,6 +4,8 @@ import type { AnyDrizzleDatabase } from '@/db/database-interface'
 import { getSiteId, performInitialSync, type SerializedChange } from '@/db/initial-sync'
 import { initializeCRRs, migrate } from '@/db/migrate'
 import { DatabaseSingleton } from '@/db/singleton'
+import { isSyncEnabled } from '@/hooks/use-sync-enabled'
+import { getAuthToken, loadAuthToken } from '@/lib/auth-token'
 import { createHandleError } from '@/lib/error-utils'
 import { createAppDir, resetAppDir } from '@/lib/fs'
 import { getDatabasePath, getDatabaseType } from '@/lib/platform'
@@ -254,6 +256,15 @@ const executeInitializationSteps = async (httpClient?: HttpClient): Promise<Hand
       }
     }
 
+    // Load auth token from settings database into memory cache
+    // This must be done after migrations (so settings table exists) but before
+    // any sync or auth client requests that need the token
+    try {
+      await loadAuthToken()
+    } catch (error) {
+      console.warn('Failed to load auth token:', error)
+    }
+
     // Step 3.6: Push preserved changes and sync
     // ⚠️ This is the second half of the cr-sqlite migration workaround.
     //
@@ -262,26 +273,36 @@ const executeInitializationSteps = async (httpClient?: HttpClient): Promise<Hand
     // those changes to the server so they aren't lost.
     //
     // Flow:
-    // 1. Read cloud_url from settings (user may have configured a custom server)
-    // 2. Push preserved changes (from Step 2.5) - these would be lost otherwise
-    // 3. Push any other local changes (normal sync)
-    // 4. Pull remote changes to get data from other devices
-    try {
-      // Read cloud_url from settings BEFORE sync - user may have a custom server configured.
-      // This must happen after migrations so the settings table schema is up to date.
-      // Falls back to DEFAULT_CLOUD_URL if no custom setting exists.
-      const { cloudUrl } = await getSettings({ cloud_url: DEFAULT_CLOUD_URL })
-      const initialHttpClient = ky.create({ prefixUrl: cloudUrl })
+    // 1. Check if sync is enabled (user must be logged in and have sync enabled)
+    // 2. Read cloud_url from settings (user may have configured a custom server)
+    // 3. Push preserved changes (from Step 2.5) - these would be lost otherwise
+    // 4. Push any other local changes (normal sync)
+    // 5. Pull remote changes to get data from other devices
+    //
+    // Note: The backend will reject unauthenticated requests, so even if this
+    // runs before auth is fully checked, the server protects against unauthorized sync.
+    if (isSyncEnabled()) {
+      try {
+        // Read cloud_url from settings BEFORE sync - user may have a custom server configured.
+        // This must happen after migrations so the settings table schema is up to date.
+        // Falls back to DEFAULT_CLOUD_URL if no custom setting exists.
+        const { cloudUrl } = await getSettings({ cloud_url: DEFAULT_CLOUD_URL })
+        const authToken = getAuthToken()
+        const initialHttpClient = ky.create({
+          prefixUrl: cloudUrl,
+          headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
+        })
 
-      // Push preserved changes first (captured before migration in Step 2.5)
-      // Without this, local changes made before migration would be permanently lost
-      await pushPreservedChanges(initialHttpClient, preservedChanges)
+        // Push preserved changes first (captured before migration in Step 2.5)
+        // Without this, local changes made before migration would be permanently lost
+        await pushPreservedChanges(initialHttpClient, preservedChanges)
 
-      // Then do normal sync: push any remaining local changes, then pull
-      await performInitialSync(initialHttpClient)
-    } catch (error) {
-      // Non-critical - continue even if initial sync fails (e.g., offline, no server)
-      console.warn('Initial sync failed, continuing with defaults:', error)
+        // Then do normal sync: push any remaining local changes, then pull
+        await performInitialSync(initialHttpClient)
+      } catch (error) {
+        // Non-critical - continue even if initial sync fails (e.g., offline, no server, not authenticated)
+        console.warn('Initial sync failed, continuing with defaults:', error)
+      }
     }
   }
 
