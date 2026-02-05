@@ -1,5 +1,6 @@
 import { index, integer, pgSchema, primaryKey, text, timestamp } from 'drizzle-orm/pg-core'
 import { user } from './auth-schema'
+import type { PowerSyncTableName } from '@shared/powersync-tables'
 
 /**
  * PowerSync tables - mirror of frontend SQLite schema.
@@ -192,3 +193,20 @@ export const devicesTable = powersyncSchema.table(
   },
   (table) => [index('idx_devices_user_id').on(table.userId)],
 )
+
+/**
+ * Map of PowerSync table names to Drizzle tables for account delete.
+ * Must have an entry for every PowerSyncTableName (type-checked).
+ */
+export const POWERSYNC_TABLES_BY_NAME = {
+  settings: settingsTable,
+  chat_threads: chatThreadsTable,
+  chat_messages: chatMessagesTable,
+  tasks: tasksTable,
+  models: modelsTable,
+  mcp_servers: mcpServersTable,
+  prompts: promptsTable,
+  triggers: triggersTable,
+  modes: modesTable,
+  devices: devicesTable,
+} satisfies Record<PowerSyncTableName, unknown>
