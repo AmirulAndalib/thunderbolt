@@ -1,7 +1,7 @@
 import type { Auth } from '@/auth/elysia-plugin'
 import type { db as DbType } from '@/db/client'
 import { user } from '@/db/auth-schema'
-import { devicesTable, POWERSYNC_TABLES_BY_NAME } from '@/db/schema'
+import { devicesTable, powersyncTablesByName } from '@/db/schema'
 import { powersyncTableNames } from '@shared/powersync-tables'
 import { and, eq } from 'drizzle-orm'
 import { Elysia } from 'elysia'
@@ -43,7 +43,7 @@ export const createAccountRoutes = (auth: Auth, database: typeof DbType) => {
 
       await database.transaction(async (tx) => {
         for (const name of powersyncTableNames) {
-          const table = POWERSYNC_TABLES_BY_NAME[name]
+          const table = powersyncTablesByName[name]
           await tx.delete(table).where(eq(table.userId, userId))
         }
         await tx.delete(user).where(eq(user.id, userId))

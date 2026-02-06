@@ -400,6 +400,60 @@ describe('PowerSync API', () => {
       expect(rows).toHaveLength(0)
     })
 
+    it('ignores unknown and injection-like column names in PUT data', async () => {
+      const userId = 'user-upload-safe'
+      const now = new Date()
+      const expiresAt = new Date(now.getTime() + 3600 * 1000)
+
+      await db.insert(userTable).values({
+        id: userId,
+        name: 'Safe Upload User',
+        email: 'upload-safe@example.com',
+        emailVerified: true,
+        createdAt: now,
+        updatedAt: now,
+      })
+
+      await db.insert(sessionTable).values({
+        id: 'session-upload-safe',
+        expiresAt,
+        token: 'bearer-upload-safe',
+        createdAt: now,
+        updatedAt: now,
+        userId,
+      })
+
+      const response = await app.handle(
+        new Request('http://localhost/powersync/upload', {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: 'Bearer bearer-upload-safe',
+          },
+          body: JSON.stringify({
+            operations: [
+              {
+                op: 'PUT' as const,
+                type: 'settings',
+                id: 'safe_key',
+                data: {
+                  value: 'expected',
+                  '"; DROP TABLE settings; --': 'ignored',
+                  invalid_column: 'ignored',
+                },
+              },
+            ],
+          }),
+        }),
+      )
+      expect(response.status).toBe(200)
+
+      const rows = await db.select().from(settingsTable).where(eq(settingsTable.key, 'safe_key'))
+      expect(rows).toHaveLength(1)
+      expect(rows[0]?.value).toBe('expected')
+      expect(rows[0]?.userId).toBe(userId)
+    })
+
     it('returns 200 with empty operations array', async () => {
       const userId = 'user-upload-empty'
       const now = new Date()

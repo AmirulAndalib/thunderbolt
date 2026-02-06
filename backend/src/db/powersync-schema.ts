@@ -199,7 +199,7 @@ export const devicesTable = pgTable('devices', {
  * Map of PowerSync table names to Drizzle tables for account delete.
  * Must have an entry for every PowerSyncTableName (type-checked).
  */
-export const POWERSYNC_TABLES_BY_NAME = {
+export const powersyncTablesByName = {
   settings: settingsTable,
   chat_threads: chatThreadsTable,
   chat_messages: chatMessagesTable,

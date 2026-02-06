@@ -2,13 +2,32 @@ import type { Auth } from '@/auth/elysia-plugin'
 import type { Settings } from '@/config/settings'
 import { session as sessionTable, user as userTable } from '@/db/auth-schema'
 import type { db as DbType } from '@/db/client'
+import { powersyncTablesByName } from '@/db/powersync-schema'
 import { devicesTable } from '@/db/schema'
 import { powersyncTableNames } from '@shared/powersync-tables'
 import { jwt } from '@elysiajs/jwt'
 import { and, eq, sql } from 'drizzle-orm'
+import { getTableColumns } from 'drizzle-orm'
+import type { Table } from 'drizzle-orm'
 import { Elysia, t } from 'elysia'
 
 const validTables = new Set<string>(powersyncTableNames)
+
+/**
+ * Valid column names per PowerSync table (DB names), derived from the schema. Used to reject unknown columns and prevent SQL injection.
+ */
+const validColumnsByTableName: Record<string, Set<string>> = Object.fromEntries(
+  (Object.entries(powersyncTablesByName) as [string, Table][]).map(([tableName, table]) => [
+    tableName,
+    new Set(Object.values(getTableColumns(table)).map((col) => col.name)),
+  ]),
+)
+
+/**
+ * Escape a PostgreSQL identifier (table/column name) by doubling internal double quotes.
+ * Prevents SQL injection when building dynamic SQL.
+ */
+const escapeIdentifier = (name: string): string => `"${name.replace(/"/g, '""')}"`
 
 /**
  * PowerSync operation types from the upload queue
@@ -47,51 +66,60 @@ const applyOperation = async (op: PowerSyncOperation, userId: string, database: 
     return
   }
 
+  const validColumns = validColumnsByTableName[op.type]
+  if (!validColumns) {
+    return
+  }
+
+  const tableIdent = escapeIdentifier(op.type)
+
   switch (op.op) {
     case 'PUT': {
-      // INSERT or UPDATE - upsert the row
-      // Merge id and user_id into data; id and user_id must come after spread so client cannot override them
-      const allData = { ...op.data, id: op.id, user_id: userId }
-      const columns = Object.keys(allData)
-        .map((k) => `"${k}"`)
-        .join(', ')
+      // INSERT or UPDATE - upsert the row. Only allow valid columns; id and user_id are forced.
+      const rawData: Record<string, unknown> = { ...op.data, id: op.id, user_id: userId }
+      const allData: Record<string, unknown> = {}
+      for (const k of Object.keys(rawData)) {
+        if (validColumns.has(k)) {
+          allData[k] = rawData[k]
+        }
+      }
+      const columns = Object.keys(allData).map(escapeIdentifier).join(', ')
       const values = Object.values(allData).map(escapeValue).join(', ')
 
-      // Build UPDATE SET clause for all columns except id
-      // Only update if the row belongs to this user
       const updateColumns = Object.keys(allData).filter((k) => k !== 'id')
       const updateClause =
         updateColumns.length > 0
-          ? `DO UPDATE SET ${updateColumns.map((k) => `"${k}" = EXCLUDED."${k}"`).join(', ')} WHERE "${op.type}"."user_id" = ${escapeValue(userId)}`
+          ? `DO UPDATE SET ${updateColumns.map((k) => `${escapeIdentifier(k)} = EXCLUDED.${escapeIdentifier(k)}`).join(', ')} WHERE ${tableIdent}.${escapeIdentifier('user_id')} = ${escapeValue(userId)}`
           : 'DO NOTHING'
 
-      const query = `INSERT INTO "${op.type}" (${columns}) VALUES (${values}) ON CONFLICT (id) ${updateClause}`
+      const query = `INSERT INTO ${tableIdent} (${columns}) VALUES (${values}) ON CONFLICT (id) ${updateClause}`
 
       await database.execute(sql.raw(query))
 
       break
     }
     case 'PATCH': {
-      // UPDATE - update existing row (only if it belongs to this user)
       if (!op.data || Object.keys(op.data).length === 0) {
         console.warn('PATCH operation missing data')
         return
       }
-      // Always set user_id to ensure ownership
       const dataWithUserId = { ...op.data, user_id: userId }
       const setClauses = Object.entries(dataWithUserId)
-        .map(([key, value]) => `"${key}" = ${escapeValue(value)}`)
+        .filter(([key]) => validColumns.has(key))
+        .map(([key, value]) => `${escapeIdentifier(key)} = ${escapeValue(value)}`)
         .join(', ')
+      if (setClauses === '') {
+        return
+      }
 
-      const query = `UPDATE "${op.type}" SET ${setClauses} WHERE id = ${escapeValue(op.id)} AND user_id = ${escapeValue(userId)}`
+      const query = `UPDATE ${tableIdent} SET ${setClauses} WHERE ${escapeIdentifier('id')} = ${escapeValue(op.id)} AND ${escapeIdentifier('user_id')} = ${escapeValue(userId)}`
 
       await database.execute(sql.raw(query))
 
       break
     }
     case 'DELETE': {
-      // DELETE - remove row (only if it belongs to this user)
-      const query = `DELETE FROM "${op.type}" WHERE id = ${escapeValue(op.id)} AND user_id = ${escapeValue(userId)}`
+      const query = `DELETE FROM ${tableIdent} WHERE ${escapeIdentifier('id')} = ${escapeValue(op.id)} AND ${escapeIdentifier('user_id')} = ${escapeValue(userId)}`
 
       await database.execute(sql.raw(query))
 
