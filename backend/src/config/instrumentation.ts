@@ -1,6 +1,19 @@
 import { opentelemetry } from '@elysiajs/opentelemetry'
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-proto'
 import { BatchSpanProcessor } from '@opentelemetry/sdk-trace-node'
+import { diag, DiagLogLevel } from '@opentelemetry/api'
+
+// Set up OpenTelemetry diagnostic logging with a prefix
+diag.setLogger(
+  {
+    error: (message, ...args) => console.error(`[OpenTelemetry/BetterStack] ${message}`, ...args),
+    warn: () => {}, // Suppress warnings (e.g., async resource detection timing)
+    info: () => {},
+    debug: () => {},
+    verbose: () => {},
+  },
+  DiagLogLevel.ERROR,
+)
 
 /**
  * Get the OpenTelemetry exporter configuration based on environment variables
@@ -36,6 +49,7 @@ export const createInstrumentation = () => {
   }
 
   console.log(`📊 OpenTelemetry traces exporting to: ${otlpEndpoint}`)
+  console.log(`   (Connection errors to this endpoint are non-fatal and won't affect the API)`)
 
   return opentelemetry({
     spanProcessors: [new BatchSpanProcessor(exporter)],
