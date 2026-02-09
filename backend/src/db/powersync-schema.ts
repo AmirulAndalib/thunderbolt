@@ -1,6 +1,16 @@
-import { index, integer, pgSchema, primaryKey, text, timestamp, type AnyPgTable } from 'drizzle-orm/pg-core'
+import {
+  index,
+  integer,
+  pgSchema,
+  primaryKey,
+  text,
+  timestamp,
+  type AnyPgTable,
+  type AnyPgColumn,
+} from 'drizzle-orm/pg-core'
 import { user } from './auth-schema'
 import type { PowerSyncTableName } from '@shared/powersync-tables'
+import { getTableColumns } from 'drizzle-orm'
 
 /**
  * PowerSync tables - mirror of frontend SQLite schema.
@@ -210,3 +220,30 @@ export const powersyncTablesByName = {
   modes: modesTable,
   devices: devicesTable,
 } satisfies Record<PowerSyncTableName, AnyPgTable>
+
+/**
+ * For each PowerSync table, map DB column name (snake_case) to schema key (camelCase).
+ * Used when applying PowerSync upload operations with Drizzle's type-safe API.
+ */
+export const powersyncDbNameToSchemaKey: Record<PowerSyncTableName, Record<string, string>> = Object.fromEntries(
+  (Object.entries(powersyncTablesByName) as [PowerSyncTableName, AnyPgTable][]).map(([tableName, table]) => [
+    tableName,
+    Object.fromEntries(Object.entries(getTableColumns(table)).map(([schemaKey, col]) => [col.name, schemaKey])),
+  ]),
+) as Record<PowerSyncTableName, Record<string, string>>
+
+/**
+ * Primary key column for each PowerSync table (for onConflictDoUpdate target).
+ */
+export const powersyncPkColumn: Record<PowerSyncTableName, AnyPgColumn> = {
+  settings: settingsTable.key,
+  chat_threads: chatThreadsTable.id,
+  chat_messages: chatMessagesTable.id,
+  tasks: tasksTable.id,
+  models: modelsTable.id,
+  mcp_servers: mcpServersTable.id,
+  prompts: promptsTable.id,
+  triggers: triggersTable.id,
+  modes: modesTable.id,
+  devices: devicesTable.id,
+}

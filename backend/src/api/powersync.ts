@@ -2,34 +2,15 @@ import type { Auth } from '@/auth/elysia-plugin'
 import type { Settings } from '@/config/settings'
 import { session as sessionTable, user as userTable } from '@/db/auth-schema'
 import type { db as DbType } from '@/db/client'
-import { powersyncTablesByName } from '@/db/powersync-schema'
+import { powersyncDbNameToSchemaKey, powersyncPkColumn, powersyncTablesByName } from '@/db/powersync-schema'
 import { devicesTable } from '@/db/schema'
-import { powersyncTableNames } from '@shared/powersync-tables'
+import { type PowerSyncTableName, powersyncTableNames } from '@shared/powersync-tables'
 import { jwt } from '@elysiajs/jwt'
-import { and, eq, gt, sql } from 'drizzle-orm'
-import { getTableColumns } from 'drizzle-orm'
+import { and, eq, gt } from 'drizzle-orm'
 import type { AnyPgTable } from 'drizzle-orm/pg-core'
 import { Elysia, t } from 'elysia'
 
 const validTables = new Set<string>(powersyncTableNames)
-
-/**
- * Valid column names per PowerSync table (DB names), derived from the schema.
- * Used to reject unknown columns and prevent SQL injection.
- * This is a defense-in-depth measure alongside identifier escaping.
- */
-const validColumnsByTableName: Record<string, Set<string>> = Object.fromEntries(
-  (Object.entries(powersyncTablesByName) as [string, AnyPgTable][]).map(([tableName, table]) => [
-    tableName,
-    new Set(Object.values(getTableColumns(table)).map((col) => col.name)),
-  ]),
-)
-
-/**
- * Escape a PostgreSQL identifier (table/column name) by doubling internal double quotes.
- * Prevents SQL injection when building dynamic SQL.
- */
-const escapeIdentifier = (name: string): string => `"${name.replace(/"/g, '""')}"`
 
 /**
  * PowerSync operation types from the upload queue
@@ -42,24 +23,26 @@ type PowerSyncOperation = {
 }
 
 /**
- * Escape a SQL string value to prevent injection
+ * Convert payload with DB column names to schema keys and filter to valid columns only.
  */
-const escapeValue = (value: unknown): string => {
-  if (value === null || value === undefined) {
-    return 'NULL'
+const toSchemaRecord = (
+  dbRecord: Record<string, unknown>,
+  validDbNames: Set<string>,
+  dbNameToKey: Record<string, string>,
+): Record<string, unknown> => {
+  const out: Record<string, unknown> = {}
+  for (const [dbName, value] of Object.entries(dbRecord)) {
+    if (!validDbNames.has(dbName)) continue
+    const schemaKey = dbNameToKey[dbName]
+    if (schemaKey && value !== undefined) {
+      out[schemaKey] = value
+    }
   }
-  if (typeof value === 'number') {
-    return String(value)
-  }
-  if (typeof value === 'boolean') {
-    return value ? 'TRUE' : 'FALSE'
-  }
-  // Escape single quotes by doubling them
-  return `'${String(value).replace(/'/g, "''")}'`
+  return out
 }
 
 /**
- * Apply a single PowerSync operation to the database using raw SQL.
+ * Apply a single PowerSync operation using Drizzle's query builder (parameterized, no raw SQL).
  * The user_id is always set to the authenticated user to ensure data isolation.
  */
 const applyOperation = async (op: PowerSyncOperation, userId: string, database: typeof DbType): Promise<void> => {
@@ -68,41 +51,39 @@ const applyOperation = async (op: PowerSyncOperation, userId: string, database: 
     return
   }
 
-  const validColumns = validColumnsByTableName[op.type]
-  if (!validColumns) {
-    return
-  }
+  const tableName = op.type as PowerSyncTableName
+  const table = powersyncTablesByName[tableName]
+  const dbNameToKey = powersyncDbNameToSchemaKey[tableName]
+  const pkColumn = powersyncPkColumn[tableName]
+  if (!table || !dbNameToKey || !pkColumn) return
 
-  const tableIdent = escapeIdentifier(op.type)
+  const validDbNames = new Set(Object.keys(dbNameToKey))
+  const tableWithUserId = table as AnyPgTable & { userId: typeof table.userId }
 
   switch (op.op) {
     case 'PUT': {
-      // id and user_id are never taken from payload; always use op.id and session userId.
-      const payload = { ...op.data } as Record<string, unknown>
+      const payload = { ...(op.data ?? {}) } as Record<string, unknown>
       delete payload.id
       delete payload.user_id
       const rawData: Record<string, unknown> = { ...payload, id: op.id, user_id: userId }
-      const allData: Record<string, unknown> = {}
-      for (const k of Object.keys(rawData)) {
-        if (validColumns.has(k)) {
-          allData[k] = rawData[k]
-        }
+      const schemaValues = toSchemaRecord(rawData, validDbNames, dbNameToKey)
+      if (Object.keys(schemaValues).length === 0) return
+
+      const updateSet = { ...schemaValues }
+      delete updateSet.id
+      delete updateSet.key
+      delete updateSet.userId
+
+      const insertQuery = database.insert(table).values(schemaValues as never)
+      if (Object.keys(updateSet).length > 0) {
+        await insertQuery.onConflictDoUpdate({
+          target: [pkColumn],
+          set: updateSet as never,
+          setWhere: eq(tableWithUserId.userId, userId),
+        })
+      } else {
+        await insertQuery.onConflictDoNothing({ target: [pkColumn] })
       }
-      const columns = Object.keys(allData).map(escapeIdentifier).join(', ')
-      const values = Object.values(allData).map(escapeValue).join(', ')
-
-      // Never SET id or user_id from EXCLUDED; always restrict UPDATE to current user's row
-      const updateColumns = Object.keys(allData).filter((k) => k !== 'id' && k !== 'user_id')
-      const userWhere = `WHERE ${tableIdent}.${escapeIdentifier('user_id')} = ${escapeValue(userId)}`
-      const updateClause =
-        updateColumns.length > 0
-          ? `DO UPDATE SET ${updateColumns.map((k) => `${escapeIdentifier(k)} = EXCLUDED.${escapeIdentifier(k)}`).join(', ')} ${userWhere}`
-          : 'DO NOTHING'
-
-      const query = `INSERT INTO ${tableIdent} (${columns}) VALUES (${values}) ON CONFLICT (id) ${updateClause}`
-
-      await database.execute(sql.raw(query))
-
       break
     }
     case 'PATCH': {
@@ -110,29 +91,20 @@ const applyOperation = async (op: PowerSyncOperation, userId: string, database: 
         console.warn('PATCH operation missing data')
         return
       }
-      // Never SET id or user_id from payload; only update other columns.
       const patchPayload = { ...op.data } as Record<string, unknown>
       delete patchPayload.id
       delete patchPayload.user_id
-      const setClauses = Object.entries(patchPayload)
-        .filter(([key]) => validColumns.has(key))
-        .map(([key, value]) => `${escapeIdentifier(key)} = ${escapeValue(value)}`)
-        .join(', ')
-      if (setClauses === '') {
-        return
-      }
+      const schemaPatch = toSchemaRecord(patchPayload, validDbNames, dbNameToKey)
+      if (Object.keys(schemaPatch).length === 0) return
 
-      const query = `UPDATE ${tableIdent} SET ${setClauses} WHERE ${escapeIdentifier('id')} = ${escapeValue(op.id)} AND ${escapeIdentifier('user_id')} = ${escapeValue(userId)}`
-
-      await database.execute(sql.raw(query))
-
+      await database
+        .update(table)
+        .set(schemaPatch as never)
+        .where(and(eq(pkColumn, op.id), eq(tableWithUserId.userId, userId)))
       break
     }
     case 'DELETE': {
-      const query = `DELETE FROM ${tableIdent} WHERE ${escapeIdentifier('id')} = ${escapeValue(op.id)} AND ${escapeIdentifier('user_id')} = ${escapeValue(userId)}`
-
-      await database.execute(sql.raw(query))
-
+      await database.delete(table).where(and(eq(pkColumn, op.id), eq(tableWithUserId.userId, userId)))
       break
     }
   }
