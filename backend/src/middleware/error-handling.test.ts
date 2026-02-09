@@ -1,9 +1,11 @@
 import { describe, expect, it, spyOn } from 'bun:test'
+import { DrizzleQueryError } from 'drizzle-orm/errors'
 import { Elysia } from 'elysia'
 import {
   createErrorResponse,
   getErrorStatus,
   getSafeErrorMessage,
+  getSafeLogMessage,
   safeErrorHandler,
   type ErrorResponse,
 } from './error-handling'
@@ -56,6 +58,26 @@ describe('getErrorStatus', () => {
   })
 })
 
+describe('getSafeLogMessage', () => {
+  it('extracts only the parameterized SQL from DrizzleQueryError', () => {
+    const query = 'select "id" from "user" where "user"."email" = $1 limit $2'
+    const error = new DrizzleQueryError(query, ['chris@example.com', 1])
+
+    const message = getSafeLogMessage(error)
+    expect(message).toBe(`Failed query: ${query}`)
+    expect(message).not.toContain('chris@example.com')
+  })
+
+  it('returns message unchanged for regular errors', () => {
+    expect(getSafeLogMessage(new Error('connection refused'))).toBe('connection refused')
+  })
+
+  it('stringifies non-Error values', () => {
+    expect(getSafeLogMessage('raw string')).toBe('raw string')
+    expect(getSafeLogMessage(42)).toBe('42')
+  })
+})
+
 /**
  * Helper to create a test app with safeErrorHandler and a route that throws.
  */
@@ -91,7 +113,7 @@ describe('safeErrorHandler', () => {
     expect(body.error).toBe('Forbidden')
   })
 
-  it('logs route, message, stack, and cause', async () => {
+  it('logs route, message, stack, and cause for regular errors', async () => {
     const errorSpy = spyOn(console, 'error').mockImplementation(() => {})
 
     const cause = new Error('connection refused')
@@ -104,10 +126,33 @@ describe('safeErrorHandler', () => {
     const calls = errorSpy.mock.calls.map((args) => args[0])
     expect(calls[0]).toContain('[500] GET /test')
     expect(calls[0]).toContain('fetch failed')
-    // Stack trace logged
+    // Stack trace logged for regular errors
     expect(calls.some((c) => typeof c === 'string' && c.includes('error-handling.test.ts'))).toBe(true)
     // Cause logged
     expect(calls.some((c) => c === 'Caused by:')).toBe(true)
+
+    errorSpy.mockRestore()
+  })
+
+  it('redacts DrizzleQueryError params from logs and suppresses stack', async () => {
+    const errorSpy = spyOn(console, 'error').mockImplementation(() => {})
+
+    const app = createTestApp(() => {
+      throw new DrizzleQueryError('select "id" from "user" where "user"."email" = $1 limit $2', [
+        'chris@example.com',
+        1,
+      ])
+    })
+
+    await app.handle(new Request('http://localhost/test'))
+
+    const logged = errorSpy.mock.calls.map((args) => args.join(' ')).join('\n')
+    expect(logged).toContain('Failed query')
+    expect(logged).toContain('$1')
+    expect(logged).not.toContain('chris@example.com')
+    // Stack trace suppressed for DrizzleQueryError (it embeds params in first line)
+    expect(logged).not.toContain('at queryWithCache')
+    expect(logged).not.toContain('DrizzleQueryError:')
 
     errorSpy.mockRestore()
   })

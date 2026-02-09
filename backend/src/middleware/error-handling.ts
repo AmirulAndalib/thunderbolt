@@ -1,5 +1,6 @@
 import type { ErrorHandler } from 'elysia'
 import { Elysia, InvertedStatusMap } from 'elysia'
+import { DrizzleQueryError } from 'drizzle-orm/errors'
 
 export type ErrorResponse = {
   success: false
@@ -26,6 +27,21 @@ export const createErrorResponse = (message: string): ErrorResponse => ({
  */
 export const getSafeErrorMessage = (status: number): string =>
   (InvertedStatusMap as Record<number, string>)[status] ?? 'An unexpected error occurred'
+
+/**
+ * Extract a log-safe message from an error, redacting PII.
+ * DrizzleQueryError embeds parameter values (emails, etc.) in .message —
+ * we use its structured .query property instead to keep only the parameterized SQL.
+ */
+export const getSafeLogMessage = (error: unknown): string => {
+  if (error instanceof DrizzleQueryError) {
+    return `Failed query: ${error.query}`
+  }
+  if (error instanceof Error) {
+    return error.message
+  }
+  return String(error)
+}
 
 /**
  * Extract HTTP status code from an error, defaulting to 500
@@ -63,12 +79,18 @@ export const safeErrorHandler: ErrorHandler = ({ code, error, set, request }) =>
   set.status = status
 
   const route = `${request.method} ${new URL(request.url).pathname}`
-  console.error(`[${status}] ${route} — ${error instanceof Error ? error.message : String(error)}`)
-  if (error instanceof Error && error.stack) {
+  console.error(`[${status}] ${route} — ${getSafeLogMessage(error)}`)
+  if (error instanceof Error && !(error instanceof DrizzleQueryError) && error.stack) {
     console.error(error.stack)
   }
-  if (error instanceof Error && error.cause) {
-    console.error('Caused by:', error.cause)
+  if (error instanceof Error && error.cause != null) {
+    const cause = error.cause
+    if (cause instanceof Error) {
+      console.error('Caused by:', cause.message)
+      if (cause.stack) console.error(cause.stack)
+    } else {
+      console.error('Caused by:', cause)
+    }
   }
 
   return createErrorResponse(getSafeErrorMessage(status))
