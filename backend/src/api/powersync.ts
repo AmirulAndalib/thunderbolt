@@ -6,7 +6,7 @@ import { powersyncTablesByName } from '@/db/powersync-schema'
 import { devicesTable } from '@/db/schema'
 import { powersyncTableNames } from '@shared/powersync-tables'
 import { jwt } from '@elysiajs/jwt'
-import { and, eq, sql } from 'drizzle-orm'
+import { and, eq, gt, sql } from 'drizzle-orm'
 import { getTableColumns } from 'drizzle-orm'
 import type { AnyPgTable } from 'drizzle-orm/pg-core'
 import { Elysia, t } from 'elysia'
@@ -234,7 +234,7 @@ export const createPowerSyncRoutes = (auth: Auth, settings: Settings, database: 
       const sessionRow = await database
         .select({ userId: sessionTable.userId })
         .from(sessionTable)
-        .where(eq(sessionTable.token, bearerToken))
+        .where(and(eq(sessionTable.token, bearerToken), gt(sessionTable.expiresAt, new Date())))
         .limit(1)
         .then((rows) => rows[0])
       if (!sessionRow) {
