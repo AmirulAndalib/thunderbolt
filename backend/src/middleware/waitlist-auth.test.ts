@@ -12,6 +12,7 @@ const createMockSettings = (overrides: Partial<Settings> = {}): Settings => ({
   thunderboltInferenceUrl: '',
   thunderboltInferenceApiKey: '',
   tinfoilApiKey: '',
+  tinfoilEnclaveAllowedHostnames: 'inference.tinfoil.sh',
   monitoringToken: '',
   googleClientId: '',
   googleClientSecret: '',

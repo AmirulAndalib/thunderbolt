@@ -40,6 +40,7 @@ describe('Main Routes', () => {
       thunderboltInferenceUrl: '',
       thunderboltInferenceApiKey: '',
       tinfoilApiKey: '',
+      tinfoilEnclaveAllowedHostnames: 'inference.tinfoil.sh',
       monitoringToken: '',
       googleClientId: '',
       googleClientSecret: '',

@@ -5,8 +5,12 @@ import { Elysia } from 'elysia'
 import { createProxyRoutes } from './proxy'
 import * as settingsModule from '@/config/settings'
 
+type ElysiaApp = {
+  handle: (request: Request) => Promise<Response>
+}
+
 describe('Proxy Routes', () => {
-  let app: any // Use any to avoid Elysia complex type issues in tests
+  let app: ElysiaApp
   let getSettingsSpy: ReturnType<typeof spyOn>
   let consoleSpies: ConsoleSpies
   let mockFetch: ReturnType<typeof mock>
@@ -37,6 +41,7 @@ describe('Proxy Routes', () => {
       thunderboltInferenceUrl: '',
       thunderboltInferenceApiKey: '',
       tinfoilApiKey: '',
+      tinfoilEnclaveAllowedHostnames: 'inference.tinfoil.sh',
       monitoringToken: '',
       googleClientId: '',
       googleClientSecret: '',

@@ -90,11 +90,11 @@ export const createApp = async (deps?: AppDeps) => {
       // Errors are handled gracefully to prevent app startup failures
       .get('/attestation', async () => {
         try {
-          const response = await fetch('https://atc.tinfoil.sh/attestation', {
-            // Add timeout to prevent hanging
-const ATTESTATION_TIMEOUT_MS = 10_000 // 10 seconds
+          // Add timeout to prevent hanging
+          const ATTESTATION_TIMEOUT_MS = 10_000 // 10 seconds
 
-signal: AbortSignal.timeout(ATTESTATION_TIMEOUT_MS),
+          const response = await fetch('https://atc.tinfoil.sh/attestation', {
+            signal: AbortSignal.timeout(ATTESTATION_TIMEOUT_MS),
           })
 
           if (!response.ok) {

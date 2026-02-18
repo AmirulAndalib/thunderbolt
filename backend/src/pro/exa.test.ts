@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it, mock } from 'bun:test'
 import { Elysia, t } from 'elysia'
 
+type ElysiaApp = {
+  handle: (request: Request) => Promise<Response>
+}
+
 // Create a test version of the plugin with mocked Exa client
 const createTestExaPlugin = (mockExaClient: any) => {
   return new Elysia({ name: 'exa-test' })
@@ -91,7 +95,7 @@ const createTestExaPlugin = (mockExaClient: any) => {
 }
 
 describe('Pro - Exa Plugin', () => {
-  let app: any
+  let app: ElysiaApp
   let mockSearch: any
   let mockGetContents: any
 

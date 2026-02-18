@@ -6,8 +6,12 @@ import { Elysia } from 'elysia'
 import { createGoogleAuthRoutes } from './google'
 import { createMicrosoftAuthRoutes } from './microsoft'
 
+type ElysiaApp = {
+  handle: (request: Request) => Promise<Response>
+}
+
 describe('Authentication Routes', () => {
-  let app: any // Use any to avoid Elysia complex type issues in tests
+  let app: ElysiaApp
   let mockFetch: ReturnType<typeof mock>
   let getSettingsSpy: ReturnType<typeof spyOn>
   let consoleSpies: ConsoleSpies
@@ -30,6 +34,7 @@ describe('Authentication Routes', () => {
       thunderboltInferenceUrl: '',
       thunderboltInferenceApiKey: '',
       tinfoilApiKey: '',
+      tinfoilEnclaveAllowedHostnames: 'inference.tinfoil.sh',
       monitoringToken: '',
       googleClientId: 'test-google-client-id',
       googleClientSecret: 'test-google-secret',

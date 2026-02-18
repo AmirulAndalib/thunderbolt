@@ -12,6 +12,7 @@ const settingsSchema = z.object({
   thunderboltInferenceUrl: z.string().default(''),
   thunderboltInferenceApiKey: z.string().default(''),
   tinfoilApiKey: z.string().default(''),
+  tinfoilEnclaveAllowedHostnames: z.string().default('inference.tinfoil.sh'),
 
   // Health Check Configuration
   monitoringToken: z.string().default(''),
@@ -62,6 +63,7 @@ const parseSettings = (): Settings => {
     thunderboltInferenceUrl: process.env.THUNDERBOLT_INFERENCE_URL || '',
     thunderboltInferenceApiKey: process.env.THUNDERBOLT_INFERENCE_API_KEY || '',
     tinfoilApiKey: process.env.TINFOIL_API_KEY || '',
+    tinfoilEnclaveAllowedHostnames: process.env.TINFOIL_ENCLAVE_ALLOWED_HOSTNAMES || 'inference.tinfoil.sh',
     monitoringToken: process.env.MONITORING_TOKEN || '',
     googleClientId: process.env.GOOGLE_CLIENT_ID || '',
     googleClientSecret: process.env.GOOGLE_CLIENT_SECRET || '',

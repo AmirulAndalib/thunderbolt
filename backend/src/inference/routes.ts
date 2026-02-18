@@ -105,9 +105,9 @@ export const createInferenceRoutes = () => {
         const { getSettings } = await import('@/config/settings')
         const settings = getSettings()
 
-if (!settings.tinfoilApiKey?.trim()) {
-  throw new Error('Tinfoil API key not configured')
-}
+        if (!settings.tinfoilApiKey?.trim()) {
+          throw new Error('Tinfoil API key not configured')
+        }
 
         if (!enclaveBaseUrl) {
           throw new Error('X-Tinfoil-Enclave-Url header missing')
@@ -117,7 +117,7 @@ if (!settings.tinfoilApiKey?.trim()) {
         let parsedUrl: URL
         try {
           parsedUrl = new URL(enclaveBaseUrl)
-        } catch (error) {
+        } catch (_error) {
           throw new Error(`Invalid enclave URL: ${enclaveBaseUrl}`)
         }
 
@@ -126,10 +126,27 @@ if (!settings.tinfoilApiKey?.trim()) {
           throw new Error('Enclave URL must use HTTPS protocol')
         }
 
-        // Security: Optionally validate hostname against whitelist
-        // For now, we allow any HTTPS URL but this could be restricted
+        // Security: Validate hostname against allowlist to prevent API key leakage
+        const allowedHostnames = settings.tinfoilEnclaveAllowedHostnames
+          .split(',')
+          .map((h) => h.trim())
+          .filter((h) => h.length > 0)
+
+        if (allowedHostnames.length === 0) {
+          throw new Error('No allowed Tinfoil enclave hostnames configured')
+        }
+
+        const hostname = parsedUrl.hostname.toLowerCase()
+        const isHostnameAllowed = allowedHostnames.some((allowed) => allowed.toLowerCase() === hostname)
+
+        if (!isHostnameAllowed) {
+          throw new Error(
+            `Hostname ${hostname} is not in the allowed list. Allowed hostnames: ${allowedHostnames.join(', ')}`,
+          )
+        }
 
         const upstreamUrl = `${enclaveBaseUrl}/v1/chat/completions`
+        const upstreamParsedUrl = new URL(upstreamUrl)
         const requestStartTime = Date.now()
 
         // Use Node's https module (Bun-compatible) to access HTTP trailers
@@ -188,7 +205,7 @@ if (!settings.tinfoilApiKey?.trim()) {
             if (req) {
               req.destroy()
             }
-            if (timeoutId) {
+            if (timeoutId !== null) {
               clearTimeout(timeoutId)
             }
             rejectOnce(new Error('Request aborted by client'))
@@ -202,10 +219,14 @@ if (!settings.tinfoilApiKey?.trim()) {
           }
 
           const port = parsedUrl.port ? Number.parseInt(parsedUrl.port, 10) : 443
+          if (Number.isNaN(port) || port <= 0 || port > 65535) {
+            throw new Error(`Invalid port in enclave URL: ${parsedUrl.port}`)
+          }
+
           const options = {
             hostname: parsedUrl.hostname,
             port,
-            path: parsedUrl.pathname + parsedUrl.search,
+            path: upstreamParsedUrl.pathname + upstreamParsedUrl.search,
             method: 'POST',
             headers: {
               Authorization: `Bearer ${settings.tinfoilApiKey}`,
@@ -227,15 +248,34 @@ if (!settings.tinfoilApiKey?.trim()) {
 
           req = https.request(options, (res) => {
             // Clear timeout on response
-            clearTimeout(timeoutId)
+            if (timeoutId !== null) {
+              clearTimeout(timeoutId)
+            }
 
             // Handle error status codes (consistent with standard provider error handling)
+            // Buffer error responses to prevent leaking internal error details
             if (res.statusCode && res.statusCode >= 400) {
-              // For error responses, we still need to stream the error body
-              // but log it appropriately (similar to how standard providers handle errors)
-              console.error(`[EHBP] Upstream returned error status: ${res.statusCode}`)
-              // Note: We can't throw here because we need to stream the error response body
-              // Standard providers handle this in the OpenAI SDK, but we handle it manually
+              const errorChunks: Buffer[] = []
+
+              res.on('data', (chunk: Buffer) => {
+                errorChunks.push(chunk)
+              })
+
+              res.on('end', () => {
+                const errorBody = Buffer.concat(errorChunks).toString()
+                console.error(`[EHBP] Upstream error ${res.statusCode ?? 'unknown'}:`, errorBody)
+
+                // Return sanitized error to prevent leaking internal details
+                rejectOnce(new Error('Inference request failed'))
+              })
+
+              res.on('error', (error: Error) => {
+                console.error('[EHBP] Error reading error response:', error)
+                rejectOnce(new Error('Inference request failed'))
+              })
+
+              // Request will be cleaned up by error handlers or cleanup function
+              return
             }
 
             const ehbpResponseNonce = res.headers['ehbp-response-nonce']
@@ -324,8 +364,8 @@ if (!settings.tinfoilApiKey?.trim()) {
               'Access-Control-Expose-Headers': 'Ehbp-Response-Nonce',
             })
 
-            if (ehbpResponseNonce) {
-              responseHeaders.set('Ehbp-Response-Nonce', ehbpResponseNonce as string)
+            if (ehbpResponseNonce && typeof ehbpResponseNonce === 'string') {
+              responseHeaders.set('Ehbp-Response-Nonce', ehbpResponseNonce)
             }
 
             // Only resolve if writer hasn't errored
@@ -342,7 +382,7 @@ if (!settings.tinfoilApiKey?.trim()) {
           })
 
           req.on('error', (error: Error) => {
-            if (timeoutId) {
+            if (timeoutId !== null) {
               clearTimeout(timeoutId)
             }
             console.error('[EHBP] Request error:', error)
@@ -361,7 +401,7 @@ if (!settings.tinfoilApiKey?.trim()) {
             if (ctx.request.signal) {
               ctx.request.signal.removeEventListener('abort', abortHandler)
             }
-            if (timeoutId) {
+            if (timeoutId !== null) {
               clearTimeout(timeoutId)
             }
           }

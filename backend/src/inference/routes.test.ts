@@ -9,8 +9,12 @@ import type OpenAI from 'openai'
 import * as inferenceClient from './client'
 import { createInferenceRoutes, supportedModels } from './routes'
 
+type ElysiaApp = {
+  handle: (request: Request) => Promise<Response>
+}
+
 describe('Inference Routes', () => {
-  let app: any // Use any to avoid Elysia complex type issues in tests
+  let app: ElysiaApp
   let getInferenceClientSpy: ReturnType<typeof spyOn>
   let isPostHogConfiguredSpy: ReturnType<typeof spyOn>
   let createSSEStreamSpy: ReturnType<typeof spyOn>
@@ -57,6 +61,7 @@ describe('Inference Routes', () => {
       thunderboltInferenceUrl: '',
       thunderboltInferenceApiKey: '',
       tinfoilApiKey: 'test-api-key',
+      tinfoilEnclaveAllowedHostnames: 'inference.tinfoil.sh',
       monitoringToken: '',
       googleClientId: '',
       googleClientSecret: '',
@@ -183,7 +188,7 @@ describe('Inference Routes', () => {
       mockRequest.end = mock(() => {})
       mockRequest.destroy = mock(() => {})
 
-      const httpsSpy = spyOn(https, 'request').mockImplementation((options: any, callback: any) => {
+      const httpsSpy = spyOn(https, 'request').mockImplementation((_options: any, callback: any) => {
         setTimeout(() => callback(new MockIncomingMessage()), 0)
         return mockRequest
       })
@@ -292,10 +297,35 @@ describe('Inference Routes', () => {
       expect(response.status).toBe(500)
     })
 
+    it('should reject EHBP request with disallowed hostname', async () => {
+      const gptOssRequest = {
+        ...validRequestBody,
+        model: 'gpt-oss-120b',
+      }
+
+      const response = await app.handle(
+        new Request('http://localhost/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Ehbp-Encapsulated-Key': 'test-key-456',
+            'X-Tinfoil-Enclave-Url': 'https://evil.example.com',
+          },
+          body: JSON.stringify(gptOssRequest),
+        }),
+      )
+
+      expect(response.status).toBe(500)
+      const json = await response.json()
+      // Error message is sanitized for security, but should return generic error
+      expect(json).toHaveProperty('error')
+      expect(json.success).toBe(false)
+    })
+
     it('should handle body reading errors gracefully', async () => {
       // Create a request with a body that throws when reading
       const errorBody = new ReadableStream({
-        start(controller) {
+        start(_controller) {
           // Don't error immediately, let it be read first
         },
       })
@@ -304,7 +334,6 @@ describe('Inference Routes', () => {
       const originalGetReader = errorBody.getReader.bind(errorBody)
       errorBody.getReader = () => {
         const reader = originalGetReader()
-        const originalRead = reader.read.bind(reader)
         reader.read = () => {
           throw new Error('Body read error')
         }
@@ -358,7 +387,7 @@ describe('Inference Routes', () => {
       mockRequest.end = mock(() => {})
       mockRequest.destroy = mock(() => {})
 
-      const httpsSpy = spyOn(https, 'request').mockImplementation((options: any, callback: any) => {
+      const httpsSpy = spyOn(https, 'request').mockImplementation((_options: any, callback: any) => {
         setTimeout(() => callback(new MockIncomingMessage()), 0)
         return mockRequest
       })
@@ -419,7 +448,7 @@ describe('Inference Routes', () => {
       mockRequest.end = mock(() => {})
       mockRequest.destroy = mock(() => {})
 
-      const httpsSpy = spyOn(https, 'request').mockImplementation((options: any, callback: any) => {
+      const httpsSpy = spyOn(https, 'request').mockImplementation((_options: any, callback: any) => {
         setTimeout(() => callback(new MockIncomingMessage()), 0)
         return mockRequest
       })
@@ -479,7 +508,7 @@ describe('Inference Routes', () => {
       mockRequest.end = mock(() => {})
       mockRequest.destroy = mock(() => {})
 
-      const httpsSpy = spyOn(https, 'request').mockImplementation((options: any, callback: any) => {
+      const httpsSpy = spyOn(https, 'request').mockImplementation((_options: any, callback: any) => {
         setTimeout(() => callback(new MockIncomingMessage()), 0)
         return mockRequest
       })
@@ -501,9 +530,12 @@ describe('Inference Routes', () => {
         }),
       )
 
-      expect(response.status).toBe(400)
-      // Should still stream error body to client
-      // Should log error (checked via console spies)
+      // Upstream errors are now rejected with sanitized error for security
+      expect(response.status).toBe(500)
+      const json = await response.json()
+      expect(json.success).toBe(false)
+      expect(json).toHaveProperty('error')
+      // Should log error to console (error body is buffered server-side)
       httpsSpy.mockRestore()
     })
 
@@ -538,7 +570,7 @@ describe('Inference Routes', () => {
       mockRequest.end = mock(() => {})
       mockRequest.destroy = mock(() => {})
 
-      const httpsSpy = spyOn(https, 'request').mockImplementation((options: any, callback: any) => {
+      const httpsSpy = spyOn(https, 'request').mockImplementation((_options: any, callback: any) => {
         setTimeout(() => callback(new MockIncomingMessage()), 0)
         return mockRequest
       })
@@ -575,7 +607,7 @@ describe('Inference Routes', () => {
       mockRequest.end = mock(() => {})
       mockRequest.destroy = mock(() => {})
 
-      const httpsSpy = spyOn(https, 'request').mockImplementation((options: any, callback: any) => {
+      const httpsSpy = spyOn(https, 'request').mockImplementation((_options: any, callback: any) => {
         // Simulate connection error
         setTimeout(() => {
           mockRequest.emit('error', new Error('ECONNREFUSED'))

@@ -6,8 +6,12 @@ import { createLinkPreviewRoutes } from './link-preview'
 import type { LinkPreviewResponse } from './types'
 import * as settingsModule from '@/config/settings'
 
+type ElysiaApp = {
+  handle: (request: Request) => Promise<Response>
+}
+
 describe('Link Preview Routes', () => {
-  let app: any // Use any to avoid Elysia complex type issues in tests
+  let app: ElysiaApp
   let getSettingsSpy: ReturnType<typeof spyOn>
   let consoleSpies: ConsoleSpies
   let mockFetch: ReturnType<typeof mock>
@@ -36,6 +40,7 @@ describe('Link Preview Routes', () => {
       thunderboltInferenceUrl: '',
       thunderboltInferenceApiKey: '',
       tinfoilApiKey: '',
+      tinfoilEnclaveAllowedHostnames: 'inference.tinfoil.sh',
       monitoringToken: '',
       googleClientId: '',
       googleClientSecret: '',
