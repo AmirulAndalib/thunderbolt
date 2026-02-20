@@ -167,17 +167,27 @@ export const createInferenceRoutes = () => {
           throw new Error('Request body is required for EHBP requests')
         }
 
+        // Security: Limit request body size to prevent DoS attacks
+        // 10MB limit (reasonable for LLM requests with long context)
+        const MAX_BODY_SIZE = 10 * 1024 * 1024
         let requestBody: Uint8Array
         try {
           const requestBodyChunks: Uint8Array[] = []
           const bodyReader = ctx.request.body.getReader()
+          let totalSize = 0
+
           while (true) {
             const { done, value } = await bodyReader.read()
             if (done) break
             if (value) {
+              totalSize += value.length
+              if (totalSize > MAX_BODY_SIZE) {
+                throw new Error(`Request body exceeds maximum size of ${MAX_BODY_SIZE} bytes`)
+              }
               requestBodyChunks.push(value)
             }
           }
+
           const requestBodyLength = requestBodyChunks.reduce((acc, chunk) => acc + chunk.length, 0)
           requestBody = new Uint8Array(requestBodyLength)
           let offset = 0
