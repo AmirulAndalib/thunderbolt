@@ -49,3 +49,51 @@ If you add a new table that is seeded with default data at initialization:
 2. Add `default_hash` if you want to track user modifications and support reconciling default updates.
 3. Update `powersyncConflictTarget` in `backend/src/db/powersync-schema.ts` to include both columns.
 4. Update `powersyncPkColumn` if needed (the primary key column used for PATCH/DELETE `WHERE` clauses—the "business" id, not user_id).
+
+---
+
+## Foreign keys and indexes
+
+### Why we don't use composite foreign keys
+
+While some tables have composite primary keys `(id, user_id)`, we **intentionally do not enforce composite foreign key constraints** for references to these tables. For example:
+
+- `chatThreadsTable.modeId` references `modesTable` (which has PK `(id, user_id)`)
+- We use a simple column-level reference: `modeId: text('mode_id')` (no `.references()` or `foreignKey()`)
+
+**Rationale:**
+
+1. **PowerSync architecture**: The backend database is primarily a sync server, not a query engine. Most queries and joins happen on the frontend (SQLite), not the backend.
+2. **E2E encryption**: With end-to-end encryption, the backend cannot meaningfully query or enforce relationships in encrypted data.
+3. **Performance**: Foreign key constraint checks add overhead to INSERT/UPDATE operations during sync. Since relationships are managed on the frontend, backend FK enforcement provides minimal value.
+4. **Flexibility**: Allows client-side data to sync even if relationships are temporarily inconsistent (e.g., during partial syncs).
+
+### Index strategy: user_id only
+
+The backend schema uses a **minimal index strategy**:
+
+- **Primary keys** (required for uniqueness)
+- **Single `user_id` index** on every table (critical for PowerSync sync rules)
+- **No active indexes** (e.g., `WHERE deletedAt IS NULL`)
+- **No foreign key indexes** (e.g., `chatThreadId`, `promptId`)
+
+**Rationale:**
+
+1. **PowerSync uses `user_id` for sync rules**: Sync rules filter by `user_id`, so this index is essential for performance.
+2. **Queries happen on the frontend**: Complex queries with JOINs, filters, and indexes happen in the local SQLite database, not the backend Postgres.
+3. **Storage efficiency**: Each index consumes storage and slows down write operations (INSERT/UPDATE/DELETE during sync).
+4. **E2E encryption**: With encrypted data, most backend indexes would be useless anyway since you can't filter or search encrypted columns.
+
+**Exception:** The `user_id` index is essential because PowerSync sync rules always filter by `user_id` to determine which data to sync to each device.
+
+### When adding new tables
+
+For any new PowerSync-synced table:
+
+1. ✅ **Do** add a `user_id` column with an index: `index('idx_[table]_user_id').on(table.userId)`
+2. ✅ **Do** use composite primary keys for default-data tables (see above)
+3. ❌ **Don't** add composite foreign key constraints
+4. ❌ **Don't** add active indexes or other query-optimization indexes
+5. ❌ **Don't** add indexes on foreign key columns
+
+The backend schema should be optimized for **PowerSync sync operations**, not for complex queries.
