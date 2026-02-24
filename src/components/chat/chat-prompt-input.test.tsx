@@ -32,21 +32,12 @@ const createMockUseContextTracking =
     estimateTokensForInput: (_input: string) => 0,
   })
 
-// Mock useSidebar hook
-const createMockUseSidebar =
-  (isMobile: boolean = false, openMobile: boolean = false) =>
+// Mock useIsMobile hook
+const createMockUseIsMobile =
+  (isMobile: boolean = false, isReady: boolean = true) =>
   () => ({
     isMobile,
-    openMobile,
-    state: 'expanded' as const,
-    open: true,
-    setOpen: mock(),
-    setOpenMobile: mock(),
-    toggleSidebar: mock(),
-    width: '16rem',
-    setWidth: mock(),
-    isDraggingRail: false,
-    setIsDraggingRail: mock(),
+    isReady,
   })
 
 /**
@@ -95,9 +86,9 @@ describe('ChatPromptInput', () => {
         triggerData: null,
       })
 
-      const mockUseSidebar = createMockUseSidebar()
+      const mockUseIsMobile = createMockUseIsMobile()
 
-      const { container } = render(<ChatPromptInput useChat={mockUseChat} useSidebar={mockUseSidebar} />, {
+      const { container } = render(<ChatPromptInput useChat={mockUseChat} useIsMobile={mockUseIsMobile} />, {
         wrapper: TestWrapper,
       })
 
@@ -121,9 +112,9 @@ describe('ChatPromptInput', () => {
         triggerData: null,
       })
 
-      const mockUseSidebar = createMockUseSidebar()
+      const mockUseIsMobile = createMockUseIsMobile()
 
-      render(<ChatPromptInput useChat={mockUseChat} useSidebar={mockUseSidebar} />, { wrapper: TestWrapper })
+      render(<ChatPromptInput useChat={mockUseChat} useIsMobile={mockUseIsMobile} />, { wrapper: TestWrapper })
 
       // Verify textarea is rendered
       const textarea = screen.getByPlaceholderText('Ask me anything...')
@@ -148,13 +139,13 @@ describe('ChatPromptInput', () => {
         triggerData: null,
       })
 
-      const mockUseSidebar = createMockUseSidebar()
+      const mockUseIsMobile = createMockUseIsMobile()
 
       render(
         <ChatPromptInput
           useChat={mockUseChat}
           useContextTracking={mockUseContextTracking}
-          useSidebar={mockUseSidebar}
+          useIsMobile={mockUseIsMobile}
         />,
         { wrapper: TestWrapper },
       )
@@ -180,10 +171,12 @@ describe('ChatPromptInput', () => {
         triggerData: null,
       })
 
-      const mockUseSidebar = createMockUseSidebar()
+      const mockUseIsMobile = createMockUseIsMobile()
       const ref = { current: null } as unknown as React.RefObject<ChatPromptInputRef>
 
-      render(<ChatPromptInput ref={ref} useChat={mockUseChat} useSidebar={mockUseSidebar} />, { wrapper: TestWrapper })
+      render(<ChatPromptInput ref={ref} useChat={mockUseChat} useIsMobile={mockUseIsMobile} />, {
+        wrapper: TestWrapper,
+      })
 
       expect(ref.current).not.toBeNull()
       expect(typeof ref.current?.focus).toBe('function')
@@ -218,10 +211,12 @@ describe('ChatPromptInput', () => {
         triggerData: null,
       })
 
-      const mockUseSidebar = createMockUseSidebar()
+      const mockUseIsMobile = createMockUseIsMobile()
       const ref = { current: null } as unknown as React.RefObject<ChatPromptInputRef>
 
-      render(<ChatPromptInput ref={ref} useChat={mockUseChat} useSidebar={mockUseSidebar} />, { wrapper: TestWrapper })
+      render(<ChatPromptInput ref={ref} useChat={mockUseChat} useIsMobile={mockUseIsMobile} />, {
+        wrapper: TestWrapper,
+      })
 
       expect(ref.current).not.toBeNull()
       expect(typeof ref.current?.setInput).toBe('function')
@@ -251,9 +246,9 @@ describe('ChatPromptInput', () => {
         triggerData: null,
       })
 
-      const mockUseSidebar = createMockUseSidebar()
+      const mockUseIsMobile = createMockUseIsMobile()
 
-      const { container } = render(<ChatPromptInput useChat={mockUseChat} useSidebar={mockUseSidebar} />, {
+      const { container } = render(<ChatPromptInput useChat={mockUseChat} useIsMobile={mockUseIsMobile} />, {
         wrapper: TestWrapper,
       })
 
@@ -276,13 +271,13 @@ describe('ChatPromptInput', () => {
         triggerData: null,
       })
 
-      const mockUseSidebar = createMockUseSidebar()
+      const mockUseIsMobile = createMockUseIsMobile()
 
       const { container } = render(
         <ChatPromptInput
           useChat={mockUseChat}
           useContextTracking={mockUseContextTracking}
-          useSidebar={mockUseSidebar}
+          useIsMobile={mockUseIsMobile}
         />,
         { wrapper: TestWrapper },
       )
@@ -290,7 +285,7 @@ describe('ChatPromptInput', () => {
       expect(container).toBeInTheDocument()
     })
 
-    it('should work with dependency injection for useSidebar', () => {
+    it('should work with dependency injection for useIsMobile', () => {
       const mockChatInstance = createMockChatInstance()
       const mockUseChat = createMockUseChat(mockChatInstance)
       const mockModel = createMockModel()
@@ -305,9 +300,9 @@ describe('ChatPromptInput', () => {
         triggerData: null,
       })
 
-      const mockUseSidebar = createMockUseSidebar(false, false)
+      const mockUseIsMobile = createMockUseIsMobile(false, true)
 
-      const { container } = render(<ChatPromptInput useChat={mockUseChat} useSidebar={mockUseSidebar} />, {
+      const { container } = render(<ChatPromptInput useChat={mockUseChat} useIsMobile={mockUseIsMobile} />, {
         wrapper: TestWrapper,
       })
 
