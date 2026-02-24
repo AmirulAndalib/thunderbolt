@@ -1,5 +1,6 @@
 import { AutosizeTextarea } from '@/components/ui/autosize-textarea'
 import { Button } from '@/components/ui/button'
+import { useIsMobile } from '@/hooks/use-mobile'
 import { type ChatThread } from '@/layout/sidebar/types'
 import type { Model } from '@/types'
 import { ArrowUp, Square } from 'lucide-react'
@@ -70,9 +71,62 @@ export const PromptInput = forwardRef<HTMLFormElement, PromptInputProps>(
       }
     }
 
+    const { isMobile } = useIsMobile()
     const showModelSelect = models && models.length > 0 && onModelChange
 
-    const content = (
+    const submitButton =
+      showSubmitButton &&
+      (isStreaming ? (
+        <Button
+          type="button"
+          variant="default"
+          className="size-8 rounded-lg flex items-center justify-center flex-shrink-0"
+          onClick={onStop}
+        >
+          <Square className="size-4" />
+        </Button>
+      ) : (
+        <Button
+          type="submit"
+          variant="default"
+          className="size-8 rounded-lg flex items-center justify-center flex-shrink-0"
+          disabled={isLoading || !value.trim()}
+        >
+          <ArrowUp className="size-4" />
+        </Button>
+      ))
+
+    // Mobile layout: single row with mode selector, textarea, and submit button inline
+    const mobileContent = (
+      <div className="flex gap-2 items-center w-full">
+        {footerStartElements && <div className="flex items-center gap-2 flex-shrink-0">{footerStartElements}</div>}
+
+        <AutosizeTextarea
+          value={value}
+          onChange={handleTextareaChange}
+          onKeyDown={submitOnEnter ? handleKeyDown : undefined}
+          placeholder={placeholder}
+          minHeight={32}
+          maxHeight={240}
+          autoFocus={autoFocus}
+          className="flex-1 border-none bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0 resize-none px-1 py-4 text-base leading-5"
+        />
+
+        {showModelSelect && (
+          <ModelSelect
+            chatThread={chatThread}
+            models={models}
+            selectedModelId={selectedModelId}
+            onModelChange={onModelChange}
+          />
+        )}
+
+        {submitButton}
+      </div>
+    )
+
+    // Desktop layout: textarea on top, footer with mode selector and buttons below
+    const desktopContent = (
       <>
         <AutosizeTextarea
           value={value}
@@ -98,30 +152,13 @@ export const PromptInput = forwardRef<HTMLFormElement, PromptInputProps>(
               />
             )}
 
-            {showSubmitButton &&
-              (isStreaming ? (
-                <Button
-                  type="button"
-                  variant="default"
-                  className="size-8 rounded-lg flex items-center justify-center"
-                  onClick={onStop}
-                >
-                  <Square className="size-4" />
-                </Button>
-              ) : (
-                <Button
-                  type="submit"
-                  variant="default"
-                  className="size-8 rounded-lg flex items-center justify-center"
-                  disabled={isLoading || !value.trim()}
-                >
-                  <ArrowUp className="size-4" />
-                </Button>
-              ))}
+            {submitButton}
           </div>
         </div>
       </>
     )
+
+    const content = isMobile ? mobileContent : desktopContent
 
     return noForm ? (
       <div className={className}>{content}</div>
