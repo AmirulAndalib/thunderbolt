@@ -1,6 +1,5 @@
 import { AutosizeTextarea } from '@/components/ui/autosize-textarea'
 import { Button } from '@/components/ui/button'
-import { useIsMobile } from '@/hooks/use-mobile'
 import { type ChatThread } from '@/layout/sidebar/types'
 import type { Model } from '@/types'
 import { ArrowUp, Square } from 'lucide-react'
@@ -21,6 +20,8 @@ type PromptInputProps = {
   isStreaming?: boolean
   onStop?: () => void
   footerStartElements?: ReactNode
+  /** Required for responsive layout. Parent controls mobile detection for consistency and testability. */
+  isMobile: boolean
   // Model selection props - optional, only used in automation modal
   chatThread?: ChatThread | null
   models?: Model[]
@@ -48,6 +49,7 @@ export const PromptInput = forwardRef<HTMLFormElement, PromptInputProps>(
       isStreaming = false,
       onStop,
       footerStartElements,
+      isMobile,
       chatThread = null,
       models,
       selectedModelId,
@@ -71,7 +73,6 @@ export const PromptInput = forwardRef<HTMLFormElement, PromptInputProps>(
       }
     }
 
-    const { isMobile } = useIsMobile()
     const showModelSelect = models && models.length > 0 && onModelChange
 
     const submitButton =

@@ -1,5 +1,6 @@
 import { useCurrentChatSession, useChatStore } from '@/chats/chat-store'
 import { useContextTracking as useContextTracking_default } from '@/hooks/use-context-tracking'
+import { useIsMobile as useIsMobile_default } from '@/hooks/use-mobile'
 import { isMobile as isPlatformMobile } from '@/lib/platform'
 import { trackEvent as trackEvent_default } from '@/lib/posthog'
 import { type Model } from '@/types'
@@ -10,7 +11,6 @@ import { ContextOverflowModal } from '../context-overflow-modal'
 import { ContextUsageIndicator } from '../context-usage-indicator'
 import { ModeSelector } from '../ui/mode-selector'
 import { PromptInput } from '../ui/prompt-input'
-import { useSidebar as useSidebar_default } from '../ui/sidebar'
 
 export type ChatPromptInputRef = {
   focus: () => void
@@ -22,7 +22,7 @@ type ChatPromptInputProps = {
   useChat?: typeof useChat_default
   useContextTracking?: typeof useContextTracking_default
   trackEvent?: typeof trackEvent_default
-  useSidebar?: typeof useSidebar_default
+  useIsMobile?: typeof useIsMobile_default
 }
 
 export const ChatPromptInput = forwardRef<ChatPromptInputRef, ChatPromptInputProps>(
@@ -32,13 +32,16 @@ export const ChatPromptInput = forwardRef<ChatPromptInputRef, ChatPromptInputPro
       useChat = useChat_default,
       useContextTracking = useContextTracking_default,
       trackEvent = trackEvent_default,
-      useSidebar = useSidebar_default,
+      useIsMobile = useIsMobile_default,
     },
     ref,
   ) => {
     const navigate = useNavigate()
     const modes = useChatStore((state) => state.modes)
     const setSelectedMode = useChatStore((state) => state.setSelectedMode)
+
+    // Use isReady to prevent layout flash on mobile
+    const { isMobile, isReady } = useIsMobile()
 
     const { chatInstance, id: chatThreadId, selectedMode, selectedModel } = useCurrentChatSession()
 
@@ -88,16 +91,17 @@ export const ChatPromptInput = forwardRef<ChatPromptInputRef, ChatPromptInputPro
       await navigate('/chats/new')
     }
 
-    const handleShowOverflowModal = useCallback((model: Model, length: number, prompt_number: number) => {
-      setShowOverflowModal(true)
-      trackEvent('chat_send_prompt_overflow', {
-        model,
-        length,
-        prompt_number,
-      })
-    }, [])
-
-    const { isMobile } = useSidebar()
+    const handleShowOverflowModal = useCallback(
+      (model: Model, length: number, prompt_number: number) => {
+        setShowOverflowModal(true)
+        trackEvent('chat_send_prompt_overflow', {
+          model,
+          length,
+          prompt_number,
+        })
+      },
+      [trackEvent],
+    )
 
     useImperativeHandle(ref, () => ({
       focus: () => {
@@ -119,6 +123,11 @@ export const ChatPromptInput = forwardRef<ChatPromptInputRef, ChatPromptInputPro
       </div>
     )
 
+    // Don't render until mobile detection is ready to prevent layout flash
+    if (!isReady) {
+      return null
+    }
+
     return (
       <>
         <PromptInput
@@ -135,6 +144,7 @@ export const ChatPromptInput = forwardRef<ChatPromptInputRef, ChatPromptInputPro
           submitOnEnter={!isStreaming && !isPlatformMobile()}
           className={`flex flex-col gap-2 bg-background dark:bg-input/30 border dark:border-input rounded-2xl w-full ${isMobile ? 'px-3 py-1' : 'p-3'}`}
           footerStartElements={footerStartElements}
+          isMobile={isMobile}
         />
         <ContextOverflowModal
           isOpen={showOverflowModal}
