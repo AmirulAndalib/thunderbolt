@@ -21,7 +21,6 @@ import {
   getSelectedModel,
   updateAutomation,
 } from '@/dal'
-import { useIsMobile } from '@/hooks/use-mobile'
 import { useSettings } from '@/hooks/use-settings'
 import { trackEvent } from '@/lib/posthog'
 import { generateTitle } from '@/lib/title-generator'
@@ -59,7 +58,6 @@ export default function AutomationFormModal({
 }: AutomationFormModalProps) {
   const db = DatabaseSingleton.instance.db
   const queryClient = useQueryClient()
-  const { isMobile } = useIsMobile()
 
   const { data: models = [] } = useQuery<Model[]>({
     queryKey: ['models', 'availableModels'],
@@ -327,7 +325,7 @@ export default function AutomationFormModal({
                   onModelChange={handleModelChange}
                   showSubmitButton={false}
                   noForm
-                  isMobile={isMobile}
+                  isMobile={false}
                   className="flex flex-col gap-2 bg-secondary p-4 rounded-md w-full"
                 />
               </CardHeader>
