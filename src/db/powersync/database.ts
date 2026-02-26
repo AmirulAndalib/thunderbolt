@@ -8,6 +8,7 @@ import type { DatabaseInterface, AnyDrizzleDatabase } from '../database-interfac
 import { DatabaseSingleton } from '../singleton'
 import { AppSchema, drizzleSchema } from './schema'
 import { ThunderboltConnector } from './connector'
+import { getPlatform } from '@/lib/platform'
 
 /** LocalStorage key for sync enabled flag */
 const syncEnabledKey = 'powersync_sync_enabled'
@@ -104,24 +105,27 @@ export class PowerSyncDatabaseImpl implements DatabaseInterface {
     // Extract just the filename from the path
     const dbFilename = path.includes('/') ? path.split('/').pop() || 'thunderbolt.db' : path
 
+    const DB_WORKER_PATH = '/@powersync/worker/WASQLiteDB.umd.js'
+    const SYNC_WORKER_PATH = '/@powersync/worker/SharedSyncImplementation.umd.js'
+
+    const isIOS = getPlatform() === 'ios'
+
     // Create PowerSync database.
     // Cast options: @powersync/web uses a nested @powersync/common, so Schema/Table types differ from our Drizzle schema.
     const options: WebPowerSyncDatabaseOptions = {
       database: new WASQLiteOpenFactory({
         dbFilename: dbFilename,
-        vfs: WASQLiteVFS.OPFSCoopSyncVFS,
-        flags: {
-          enableMultiTabs: false, //typeof SharedWorker !== 'undefined',
-        },
+        vfs: isIOS ? WASQLiteVFS.OPFSCoopSyncVFS : WASQLiteVFS.IDBBatchAtomicVFS,
+        worker: DB_WORKER_PATH,
+        flags: { enableMultiTabs: false },
       }),
       // { dbFilename },
       schema: AppSchema as unknown as WebPowerSyncDatabaseOptions['schema'],
       // Disable web workers on iOS: WASM + Web Worker memory causes iOS to kill the
       // WKWebView WebContent process (~30s after launch), resulting in a black screen.
       // See: https://github.com/tauri-apps/tauri/issues/14371
-      flags: {
-        useWebWorker: false, // typeof SharedWorker !== 'undefined'
-      },
+      flags: { enableMultiTabs: false },
+      sync: { worker: SYNC_WORKER_PATH },
     }
     this.powerSync = new PowerSyncDatabase(options)
 

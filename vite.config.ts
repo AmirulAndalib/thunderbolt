@@ -2,6 +2,7 @@
 import { storybookTest } from '@storybook/addon-vitest/vitest-plugin'
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
+import { execSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import path from 'path'
 import { defineConfig } from 'vite'
@@ -27,6 +28,12 @@ export default defineConfig({
     },
   },
   plugins: [
+    {
+      name: 'copy-powersync-assets',
+      buildStart() {
+        execSync('powersync-web copy-assets --output public', { stdio: 'inherit' })
+      },
+    },
     tailwindcss(),
     react(),
     // Include the bundle analyzer plugin only when explicitly requested.
