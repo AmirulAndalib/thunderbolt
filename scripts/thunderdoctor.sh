@@ -11,6 +11,11 @@ PASS="${GREEN}✓${NC}"
 FAIL="${RED}✗${NC}"
 WARN="${YELLOW}!${NC}"
 
+QUIET=false
+if [ "${1:-}" = "--quiet" ] || [ "${1:-}" = "-q" ]; then
+  QUIET=true
+fi
+
 has_critical_failure=false
 has_any_failure=false
 
@@ -21,7 +26,9 @@ check() {
   local critical="${4:-false}"
 
   if result=$(eval "$cmd" 2>/dev/null); then
-    echo -e "  ${PASS} ${label} ${result:+(${result})}"
+    if [ "$QUIET" = false ]; then
+      echo -e "  ${PASS} ${label} ${result:+(${result})}"
+    fi
   else
     has_any_failure=true
     if [ "$critical" = "true" ]; then
@@ -33,13 +40,13 @@ check() {
   fi
 }
 
-echo ""
-echo "Thunderbolt Doctor"
-echo "══════════════════"
-echo ""
-
-# --- Tools ---
-echo "Tools:"
+if [ "$QUIET" = false ]; then
+  echo ""
+  echo "Thunderbolt Doctor"
+  echo "══════════════════"
+  echo ""
+  echo "Tools:"
+fi
 
 check "bun" \
   "bun --version" \
@@ -76,23 +83,27 @@ check "render" \
   "ver=\$(render --version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+') && if render whoami -o json >/dev/null 2>&1; then echo \"\$ver, logged in\"; else echo \"\$ver, logged out\"; fi" \
   "install with: brew install render && render login"
 
-echo ""
-
-# --- Env files ---
-echo "Environment:"
-
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
+if [ "$QUIET" = false ]; then
+  echo ""
+  echo "Environment:"
+fi
+
 if [ -f "$PROJECT_ROOT/.env" ]; then
-  echo -e "  ${PASS} .env exists"
+  if [ "$QUIET" = false ]; then
+    echo -e "  ${PASS} .env exists"
+  fi
 else
   has_any_failure=true
   echo -e "  ${FAIL} .env missing — copy from .env.example: cp .env.example .env"
 fi
 
 if [ -f "$PROJECT_ROOT/backend/.env" ]; then
-  echo -e "  ${PASS} backend/.env exists"
+  if [ "$QUIET" = false ]; then
+    echo -e "  ${PASS} backend/.env exists"
+  fi
 else
   has_any_failure=true
   echo -e "  ${FAIL} backend/.env missing — copy from backend/.env.example: cp backend/.env.example backend/.env"
@@ -108,6 +119,8 @@ elif [ "$has_any_failure" = true ]; then
   echo -e "${YELLOW}Some optional tools are missing. Things may still work, but consider installing them.${NC}"
   exit 0
 else
-  echo -e "${GREEN}All checks passed!${NC}"
+  if [ "$QUIET" = false ]; then
+    echo -e "${GREEN}All checks passed!${NC}"
+  fi
   exit 0
 fi

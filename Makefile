@@ -1,4 +1,4 @@
-.PHONY: help setup install build build-desktop build-android build-ios clean run dev doctor docker-up docker-down docker-status
+.PHONY: help setup install build build-desktop build-android build-ios clean run dev doctor doctor-q docker-up docker-down docker-status
 
 # Color definitions
 BLUE := \033[0;34m
@@ -132,9 +132,12 @@ run:
 # Alias for run
 dev: run
 
-# Environment doctor
+# Environment doctor (use `make doctor-q` for quiet mode — only shows issues)
 doctor:
 	@bash scripts/thunderdoctor.sh
+
+doctor-q:
+	@bash scripts/thunderdoctor.sh --quiet
 
 # Docker management
 docker-up:
