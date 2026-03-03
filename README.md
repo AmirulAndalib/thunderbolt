@@ -23,6 +23,20 @@ This single command will:
 5. Run backend database migrations
 6. Start both backend and frontend development servers
 
+**Running frontend and backend in separate terminals:**
+
+After running `make up`, you can press `Ctrl+C` to stop the servers and run them separately:
+
+```sh
+# Terminal 1 - Backend
+cd backend && bun run dev
+
+# Terminal 2 - Frontend
+bun run dev
+```
+
+This is useful if you want to see logs separately or restart one server without affecting the other.
+
 **Minimal frontend-only setup (no backend):**
 1. Create a `.env` file with:
    ```
