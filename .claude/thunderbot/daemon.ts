@@ -1,7 +1,7 @@
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync, unlinkSync } from 'fs'
 import { join } from 'path'
 import { homedir } from 'os'
-import { execSync, spawn } from 'child_process'
+import { spawn, spawnSync } from 'child_process'
 import type { DaemonState } from './types'
 import { PRIORITY_LABELS } from './assess'
 
@@ -79,14 +79,8 @@ const isProcessRunning = (pid: number): boolean => {
   }
 }
 
-const commandExists = (cmd: string): boolean => {
-  try {
-    execSync(`command -v ${cmd}`, { stdio: 'pipe' })
-    return true
-  } catch {
-    return false
-  }
-}
+const commandExists = (cmd: string): boolean =>
+  spawnSync('command', ['-v', cmd], { stdio: 'pipe', shell: true }).status === 0
 
 const brewInstall = (formula: string, tap?: string): boolean => {
   if (!commandExists('brew')) {
@@ -96,10 +90,12 @@ const brewInstall = (formula: string, tap?: string): boolean => {
   try {
     if (tap) {
       log(`Tapping ${tap}...`)
-      execSync(`brew tap ${tap}`, { stdio: 'pipe' })
+      const tapResult = spawnSync('brew', ['tap', tap], { stdio: 'pipe' })
+      if (tapResult.status !== 0) throw new Error(`brew tap failed`)
     }
     log(`Installing ${formula} via Homebrew...`)
-    execSync(`brew install ${formula}`, { stdio: 'pipe' })
+    const installResult = spawnSync('brew', ['install', formula], { stdio: 'pipe' })
+    if (installResult.status !== 0) throw new Error(`brew install failed`)
     return true
   } catch {
     log(`Failed to install ${formula}`)

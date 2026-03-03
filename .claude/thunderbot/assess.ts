@@ -6,6 +6,10 @@ const COMPLEX_LABELS = ['infra', 'devops', 'database-migration', 'powersync']
 const AUTOMATABLE_KEYWORDS = ['fix', 'bug', 'add', 'implement', 'refactor', 'update', 'remove', 'rename', 'change', 'replace']
 const NON_AUTOMATABLE_KEYWORDS = ['design', 'discuss', 'research', 'meeting', 'investigate', 'explore', 'spike', 'plan']
 
+/** Match a keyword as a whole word to avoid false positives (e.g. "add" matching "padding") */
+const containsWord = (text: string, word: string): boolean =>
+  new RegExp(`\\b${word}\\b`).test(text)
+
 /** Extract lowercase label names from an issue */
 export const getLabelNames = (issue: LinearIssue): string[] =>
   issue.labels?.nodes?.map((label) => label.name.toLowerCase()) ?? []
@@ -47,13 +51,13 @@ export const assessTask = (issue: LinearIssue): TaskAssessment => {
   }
 
   for (const keyword of NON_AUTOMATABLE_KEYWORDS) {
-    if (titleAndDesc.includes(keyword)) {
+    if (containsWord(titleAndDesc, keyword)) {
       confidence -= 10
       reasons.push(`Contains non-automatable keyword: "${keyword}"`)
     }
   }
 
-  if (AUTOMATABLE_KEYWORDS.some((keyword) => titleAndDesc.includes(keyword))) {
+  if (AUTOMATABLE_KEYWORDS.some((keyword) => containsWord(titleAndDesc, keyword))) {
     confidence += 15
     reasons.push('Contains automatable keyword(s)')
   }

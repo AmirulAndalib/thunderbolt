@@ -83,6 +83,19 @@ describe('assessTask', () => {
     expect(research.confidence).toBeLessThan(normal.confidence)
   })
 
+  test('keyword matching uses word boundaries to avoid false positives', () => {
+    // "add" should not match inside "padding"/"address", "design" not inside "redesigned"
+    const falsePositive = assessTask(makeIssue({
+      title: 'Update padding on the redesigned file explorer card',
+      description: 'The card component has incorrect padding after the latest redesigned layout was shipped.',
+    }))
+    // "design" and "explore" are NON_AUTOMATABLE — with substring matching they would
+    // falsely match "redesigned" and "explorer", penalizing the task. With word-boundary
+    // matching, only "update" (automatable) should match.
+    expect(falsePositive.reasons).not.toContainEqual(expect.stringContaining('"design"'))
+    expect(falsePositive.reasons).not.toContainEqual(expect.stringContaining('"explore"'))
+  })
+
   test('boosts confidence for automatable keywords', () => {
     const vague = assessTask(makeIssue({
       title: 'Authentication flow',
