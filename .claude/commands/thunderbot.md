@@ -30,15 +30,16 @@ If `$ARGUMENTS` contains a task ID (e.g., "THU-123"):
 - Fetch that specific task: `linear issue view $ARGUMENTS --json`
 
 If `$ARGUMENTS` is empty — auto-select:
-1. List eligible tasks: `linear issue list --team THU --state unstarted --sort priority`
+1. List eligible tasks: `linear issue list --team THU --state unstarted --all-assignees --sort priority`
+   - **Important**: Use `--all-assignees` so tasks assigned to others (e.g., labeled "Good For Bot") are not filtered out. The CLI defaults to showing only the current user's issues.
    - Note: `linear issue list` outputs a human-readable table, NOT JSON. Parse the identifiers (e.g., "THU-303") from the table output.
 2. For each candidate identifier, fetch full details: `linear issue view <identifier> --json`
 3. For each candidate, run the assessment heuristic:
    ```bash
    bun run .claude/thunderbot/assess.ts '<issue-json>'
    ```
-4. Pick the task with the highest score (from `scoreTask` in assess.ts)
-5. If no "unstarted" tasks score well, check "backlog": `linear issue list --team THU --state backlog --sort priority`
+4. Pick the task with the highest score (from `scoreTask` in assess.ts). Tasks labeled "Good For Bot" get a significant score boost and should typically be selected first.
+5. If no "unstarted" tasks score well, check "backlog": `linear issue list --team THU --state backlog --all-assignees --sort priority`
 6. If a task looks too large (complexity = "too-large"), stop and ask the human whether to break it into subtasks
 7. Only ask the human if truly no task seems suitable
 
