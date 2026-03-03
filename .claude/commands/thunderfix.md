@@ -11,6 +11,46 @@ REPO=$(gh repo view --json nameWithOwner --jq '.nameWithOwner')
 
 If no PR is found, stop and tell the user.
 
+## GraphQL Helper
+
+All GraphQL queries use `$id` variables that conflict with shell expansion. Write queries to a temp file and load with `-F`:
+
+```bash
+GQL_DIR=$(mktemp -d)
+
+cat > "$GQL_DIR/threads.graphql" << 'GQL'
+query($id: ID!) {
+  node(id: $id) {
+    ... on PullRequest {
+      reviewThreads(first: 100) {
+        nodes { id isResolved comments(first: 10) { nodes { body path line author { login } } } }
+      }
+    }
+  }
+}
+GQL
+
+cat > "$GQL_DIR/threads_summary.graphql" << 'GQL'
+query($id: ID!) {
+  node(id: $id) {
+    ... on PullRequest {
+      reviewThreads(first: 100) {
+        nodes { id isResolved }
+      }
+    }
+  }
+}
+GQL
+
+cat > "$GQL_DIR/resolve.graphql" << 'GQL'
+mutation($id: ID!) {
+  resolveReviewThread(input: {threadId: $id}) {
+    thread { id }
+  }
+}
+GQL
+```
+
 ## Fix Loop
 
 Run this loop. Track elapsed time — stop after **15 minutes** total.
@@ -20,20 +60,9 @@ Run this loop. Track elapsed time — stop after **15 minutes** total.
 Gather all unresolved review comments and CI status:
 
 ```bash
-# Unresolved review threads
 PR_NODE_ID=$(gh api "repos/$REPO/pulls/$PR_NUMBER" --jq '.node_id')
 
-UNRESOLVED=$(gh api graphql -f query='
-  query($id: ID!) {
-    node(id: $id) {
-      ... on PullRequest {
-        reviewThreads(first: 100) {
-          nodes { id, isResolved, comments(first: 10) { nodes { body, path, line, author { login } } } }
-        }
-      }
-    }
-  }
-' -f id="$PR_NODE_ID" --jq '.data.node.reviewThreads.nodes[] | select(.isResolved == false)')
+UNRESOLVED=$(gh api graphql -F "query=@$GQL_DIR/threads.graphql" -f "id=$PR_NODE_ID" --jq '.data.node.reviewThreads.nodes[] | select(.isResolved == false)')
 
 # CI status
 gh pr checks "$PR_NUMBER"
@@ -74,17 +103,7 @@ After CI passes, poll for new unresolved comments (max **5 minutes**, every 30s)
 
 ```bash
 for i in $(seq 1 10); do
-  NEW_UNRESOLVED=$(gh api graphql -f query='
-    query($id: ID!) {
-      node(id: $id) {
-        ... on PullRequest {
-          reviewThreads(first: 100) {
-            nodes { id, isResolved }
-          }
-        }
-      }
-    }
-  ' -f id="$PR_NODE_ID" --jq '[.data.node.reviewThreads.nodes[] | select(.isResolved == false)] | length')
+  NEW_UNRESOLVED=$(gh api graphql -F "query=@$GQL_DIR/threads_summary.graphql" -f "id=$PR_NODE_ID" --jq '[.data.node.reviewThreads.nodes[] | select(.isResolved == false)] | length')
 
   if [ "$NEW_UNRESOLVED" -gt 0 ]; then
     break
@@ -101,27 +120,13 @@ done
 After the loop exits, resolve all unresolved review threads:
 
 ```bash
-THREAD_IDS=$(gh api graphql -f query='
-  query($id: ID!) {
-    node(id: $id) {
-      ... on PullRequest {
-        reviewThreads(first: 100) {
-          nodes { id, isResolved }
-        }
-      }
-    }
-  }
-' -f id="$PR_NODE_ID" --jq '.data.node.reviewThreads.nodes[] | select(.isResolved == false) | .id')
+THREAD_IDS=$(gh api graphql -F "query=@$GQL_DIR/threads_summary.graphql" -f "id=$PR_NODE_ID" --jq '.data.node.reviewThreads.nodes[] | select(.isResolved == false) | .id')
 
 for THREAD_ID in $THREAD_IDS; do
-  gh api graphql -f query='
-    mutation($id: ID!) {
-      resolveReviewThread(input: {threadId: $id}) {
-        thread { id }
-      }
-    }
-  ' -f id="$THREAD_ID"
+  gh api graphql -F "query=@$GQL_DIR/resolve.graphql" -f "id=$THREAD_ID"
 done
+
+rm -rf "$GQL_DIR"
 ```
 
 ## Report
