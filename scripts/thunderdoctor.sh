@@ -60,7 +60,7 @@ check "docker" \
   true
 
 check "gh" \
-  "gh auth status >/dev/null 2>&1 && echo \"\$(gh --version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1), authenticated\"" \
+  "ver=\$(gh --version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1) && if gh auth status >/dev/null 2>&1; then echo \"\$ver, logged in\"; else echo \"\$ver, logged out\"; fi" \
   "install with: brew install gh && gh auth login"
 
 check "git" \
@@ -69,11 +69,11 @@ check "git" \
   true
 
 check "linear" \
-  "linear auth whoami >/dev/null 2>&1 && echo \"\$(linear --version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+'), authenticated\"" \
+  "ver=\$(linear --version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+') && if linear auth whoami >/dev/null 2>&1; then echo \"\$ver, logged in\"; else echo \"\$ver, logged out\"; fi" \
   "install with: brew install schpet/tap/linear && linear auth login"
 
 check "render" \
-  "render whoami -o json >/dev/null 2>&1 && echo \"\$(render --version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+'), authenticated\"" \
+  "ver=\$(render --version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+') && if render whoami -o json >/dev/null 2>&1; then echo \"\$ver, logged in\"; else echo \"\$ver, logged out\"; fi" \
   "install with: brew install render && render login"
 
 echo ""
