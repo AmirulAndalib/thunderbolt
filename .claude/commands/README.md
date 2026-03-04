@@ -10,10 +10,10 @@ This maps the skills directly into your project's `.claude/commands/` directory.
 
 ```bash
 # Add thunderbot skills to your project
-git subtree add --prefix=.claude/commands git@github.com:user/thunderbot.git main --squash
+git subtree add --prefix=.claude/commands git@github.com:thunderbird/thunderbot.git main --squash
 
 # Add a remote alias to simplify future commands
-git remote add thunderbot git@github.com:user/thunderbot.git
+git remote add thunderbot git@github.com:thunderbird/thunderbot.git
 ```
 
 **Pull upstream changes** (e.g. community PRs merged into thunderbot):
