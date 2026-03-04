@@ -173,7 +173,7 @@ export const mostRecentDate = (a: Date | null, b: Date | null): Date | null => {
   if (!b) {
     return a
   }
-  return a.getTime() >= b.getTime() ? a : b
+  return dayjs(b).isAfter(a) ? b : a
 }
 
 /**
