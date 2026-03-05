@@ -1,7 +1,7 @@
 import { getSettings } from '@/dal'
 import { defaultSettingCloudUrl } from '@/defaults/settings'
 import type { AbstractPowerSyncDatabase } from '@powersync/common'
-import { PowerSyncDatabase, SyncStreamConnectionMethod, WASQLiteOpenFactory, WASQLiteVFS } from '@powersync/web'
+import { type PowerSyncDatabase, SyncStreamConnectionMethod, WASQLiteOpenFactory, WASQLiteVFS } from '@powersync/web'
 import type { WebPowerSyncDatabaseOptions } from '@powersync/web'
 import { wrapPowerSyncWithDrizzle } from '@powersync/drizzle-driver'
 import type { DatabaseInterface, AnyDrizzleDatabase } from '../database-interface'
@@ -100,10 +100,17 @@ export const getPowerSyncOptions = (path: string) => {
     return {
       database: { dbFilename },
       schema: AppSchema as unknown as WebPowerSyncDatabaseOptions['schema'],
-      // Required for both approaches: SharedWorker creates its own storage and bypasses our adapter.
-      // Ref: https://docs.powersync.com/client-sdks/reference/javascript-web#available-flags
-      flags: { enableMultiTabs: false, useWebWorker: false },
       transformers: [encryptionMiddleware],
+      // Use a custom SharedWorker that embeds TransformableBucketStorage with encryption middleware.
+      // This enables multi-tab support while still running transformations before local DB writes.
+      // The standard SharedWorker hardcodes SqliteBucketStorage and ignores any main-thread adapter.
+      sync: {
+        worker: () =>
+          new SharedWorker(new URL('./worker/ThunderboltSharedSyncImplementation.worker.ts', import.meta.url), {
+            type: 'module',
+            name: `shared-sync-${dbFilename}`,
+          }),
+      },
     }
   }
 
@@ -122,14 +129,10 @@ export const getPowerSyncOptions = (path: string) => {
       dbFilename: dbFilename,
       vfs: WASQLiteVFS.OPFSCoopSyncVFS,
       worker: '/@powersync/worker/WASQLiteDB.umd.js',
-      // Required for both approaches: SharedWorker creates its own storage and bypasses our adapter.
-      // Ref: https://docs.powersync.com/client-sdks/reference/javascript-web#available-flags
-      flags: { enableMultiTabs: false, useWebWorker: false },
+      flags: { enableMultiTabs: false },
     }),
     schema: AppSchema as unknown as WebPowerSyncDatabaseOptions['schema'],
-    // Required for both approaches: SharedWorker creates its own storage and bypasses our adapter.
-    // Ref: https://docs.powersync.com/client-sdks/reference/javascript-web#available-flags
-    flags: { enableMultiTabs: false, useWebWorker: false },
+    flags: { enableMultiTabs: false },
     sync: { worker: '/@powersync/worker/SharedSyncImplementation.umd.js' },
     transformers: [encryptionMiddleware],
   }
