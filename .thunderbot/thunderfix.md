@@ -1,5 +1,4 @@
 ---
-disable-model-invocation: true
 context: fork
 description: "Fix PR review comments and CI failures"
 ---
