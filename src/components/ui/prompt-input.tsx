@@ -1,5 +1,6 @@
 import { AutosizeTextarea } from '@/components/ui/autosize-textarea'
 import { Button } from '@/components/ui/button'
+import { useKeyboardHaptics } from '@/hooks/use-keyboard-haptics'
 import { type ChatThread } from '@/layout/sidebar/types'
 import type { Model } from '@/types'
 import { ArrowUp, Square } from 'lucide-react'
@@ -64,9 +65,12 @@ export const PromptInput = forwardRef<HTMLFormElement, PromptInputProps>(
       }
     }
 
+    const { onKeyDown: onKeyDownHaptic } = useKeyboardHaptics()
+
     const handleTextareaChange = (e: ChangeEvent<HTMLTextAreaElement>) => onChange(e.target.value)
 
     const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+      onKeyDownHaptic(e)
       if (!isStreaming && submitOnEnter && e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault()
         onSubmit?.()
@@ -103,7 +107,7 @@ export const PromptInput = forwardRef<HTMLFormElement, PromptInputProps>(
         <AutosizeTextarea
           value={value}
           onChange={handleTextareaChange}
-          onKeyDown={submitOnEnter ? handleKeyDown : undefined}
+          onKeyDown={handleKeyDown}
           placeholder={placeholder}
           minHeight={28}
           maxHeight={240}
@@ -136,7 +140,7 @@ export const PromptInput = forwardRef<HTMLFormElement, PromptInputProps>(
         <AutosizeTextarea
           value={value}
           onChange={handleTextareaChange}
-          onKeyDown={submitOnEnter ? handleKeyDown : undefined}
+          onKeyDown={handleKeyDown}
           placeholder={placeholder}
           minHeight={52}
           maxHeight={240}
