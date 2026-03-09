@@ -6,6 +6,8 @@ import { Cloud, CloudOff, Loader2 } from 'lucide-react'
 import { SyncEnableWarningDialog } from '@/components/sync-enable-warning-dialog'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Switch } from '@/components/ui/switch'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { useState } from 'react'
 
 /**
  * PowerSync status indicator that shows sync state in the header.
@@ -15,6 +17,7 @@ export const PowerSyncStatus = () => {
   const authClient = useAuth()
   const { data: session } = authClient.useSession()
   const isAuthenticated = !!session?.user
+  const [popoverOpen, setPopoverOpen] = useState(false)
 
   const { connectionStatus, hasSynced, lastSyncedAt } = usePowerSyncStatus()
   const { syncEnabled, syncEnableWarningOpen, setSyncEnableWarningOpen, handleSyncToggle, handleConfirmEnableSync } =
@@ -69,21 +72,25 @@ export const PowerSyncStatus = () => {
 
   return (
     <>
-      <Popover>
-        <PopoverTrigger asChild>
-          <button
-            type="button"
-            className={cn(
-              'flex items-center gap-2 px-[var(--spacing-x-sm)] py-[var(--spacing-y-sm)] rounded-md transition-colors min-h-[var(--min-touch-height)]',
-              'hover:bg-accent cursor-pointer select-none outline-none',
-            )}
-            aria-label="Sync status"
-            aria-haspopup="dialog"
-          >
-            {getIcon()}
-            <span className="text-xs text-muted-foreground hidden sm:inline">{getStatusText()}</span>
-          </button>
-        </PopoverTrigger>
+      <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
+        <Tooltip open={popoverOpen ? false : undefined}>
+          <TooltipTrigger asChild>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                className={cn(
+                  'flex items-center justify-center size-[var(--touch-height-sm)] rounded-full transition-colors',
+                  'hover:bg-secondary/50 cursor-pointer select-none outline-none',
+                )}
+                aria-label="Sync status"
+                aria-haspopup="dialog"
+              >
+                {getIcon()}
+              </button>
+            </PopoverTrigger>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">{getStatusText()}</TooltipContent>
+        </Tooltip>
         <PopoverContent align="end" side="bottom">
           <div className="flex flex-col gap-3">
             <div>
