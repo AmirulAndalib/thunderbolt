@@ -105,10 +105,10 @@ export const PromptInput = forwardRef<HTMLFormElement, PromptInputProps>(
           onChange={handleTextareaChange}
           onKeyDown={submitOnEnter ? handleKeyDown : undefined}
           placeholder={placeholder}
-          minHeight={28}
+          minHeight={36}
           maxHeight={240}
           autoFocus={autoFocus}
-          className="w-full border-none bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0 resize-none px-1 pt-1 pb-0 text-base leading-5"
+          className="w-full border-none bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0 resize-none px-1 py-2 text-base leading-5"
         />
 
         <div className="flex justify-between items-end w-full">
