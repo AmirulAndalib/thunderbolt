@@ -5,17 +5,12 @@ import { useEffect } from 'react'
  * can stay pinned above the software keyboard on mobile.
  *
  * Sets on `<html>`:
- * - `--vv-top`:    visual viewport scroll offset (px) — on iOS Safari the
- *                  browser scrolls the layout viewport when the keyboard opens,
- *                  so fixed elements drift off-screen unless compensated.
- * - `--vv-height`: visual viewport height (px) — shrinks to the area above
- *                  the keyboard.
- * - `--kb`:        keyboard inset height (px) — kept for consumers that need
- *                  the raw keyboard height (e.g. positioned dialogs).
+ * - `--vv-top`:    visual viewport scroll offset (px)
+ * - `--vv-height`: visual viewport height (px)
+ * - `--kb`:        keyboard inset height (px)
  *
- * Uses `requestAnimationFrame` polling while the viewport is animating
- * (keyboard slide) so the values update every frame instead of only when
- * the browser fires `resize`/`scroll` events.
+ * Starts `requestAnimationFrame` polling on `focusin` (before the keyboard
+ * animation begins) so the values track every frame from the start.
  */
 export const useKeyboardInset = (): void => {
   useEffect(() => {
@@ -34,7 +29,6 @@ export const useKeyboardInset = (): void => {
       el.setProperty('--kb', `${Math.max(0, window.innerHeight - vv.height - vv.offsetTop)}px`)
     }
 
-    /** Poll every frame until the viewport stops moving. */
     const poll = () => {
       apply()
 
@@ -49,15 +43,14 @@ export const useKeyboardInset = (): void => {
         stableFrames++
       }
 
-      // Keep polling until 10 consecutive stable frames (~160ms)
-      if (stableFrames < 10) {
+      if (stableFrames < 20) {
         rafId = requestAnimationFrame(poll)
       } else {
         rafId = 0
       }
     }
 
-    const onViewportChange = () => {
+    const startPolling = () => {
       stableFrames = 0
       if (!rafId) {
         rafId = requestAnimationFrame(poll)
@@ -66,12 +59,17 @@ export const useKeyboardInset = (): void => {
 
     apply()
 
-    vv.addEventListener('resize', onViewportChange)
-    vv.addEventListener('scroll', onViewportChange)
+    // Start polling on focusin — fires BEFORE the keyboard animation starts
+    document.addEventListener('focusin', startPolling)
+    document.addEventListener('focusout', startPolling)
+    vv.addEventListener('resize', startPolling)
+    vv.addEventListener('scroll', startPolling)
 
     return () => {
-      vv.removeEventListener('resize', onViewportChange)
-      vv.removeEventListener('scroll', onViewportChange)
+      document.removeEventListener('focusin', startPolling)
+      document.removeEventListener('focusout', startPolling)
+      vv.removeEventListener('resize', startPolling)
+      vv.removeEventListener('scroll', startPolling)
       if (rafId) cancelAnimationFrame(rafId)
     }
   }, [])
