@@ -402,6 +402,7 @@ export default function PreferencesSettingsPage() {
             </ModificationIndicator>
             <Input
               placeholder="Your name"
+              className="rounded-[var(--radius-lg)]"
               value={nameInput}
               onChange={(e) => setNameInput(e.target.value)}
               onBlur={async (e) => {
@@ -447,7 +448,10 @@ export default function PreferencesSettingsPage() {
                   variant="outline"
                   role="combobox"
                   aria-expanded={locationSearch.open}
-                  className={cn('w-full justify-between', !locationName.value && 'text-muted-foreground')}
+                  className={cn(
+                    'w-full justify-between rounded-[var(--radius-lg)]',
+                    !locationName.value && 'text-muted-foreground',
+                  )}
                 >
                   {locationName.value || 'Select location...'}
                   <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
@@ -521,7 +525,10 @@ export default function PreferencesSettingsPage() {
                   variant="outline"
                   role="combobox"
                   disabled={unitsOptionsLoading}
-                  className={cn('w-auto justify-between', !distanceUnit.value && 'text-muted-foreground')}
+                  className={cn(
+                    'w-auto justify-between rounded-[var(--radius-lg)]',
+                    !distanceUnit.value && 'text-muted-foreground',
+                  )}
                 >
                   {unitsOptionsLoading
                     ? 'Loading...'
@@ -572,7 +579,10 @@ export default function PreferencesSettingsPage() {
                   variant="outline"
                   role="combobox"
                   disabled={unitsOptionsLoading}
-                  className={cn('w-auto justify-between', !temperatureUnit.value && 'text-muted-foreground')}
+                  className={cn(
+                    'w-auto justify-between rounded-[var(--radius-lg)]',
+                    !temperatureUnit.value && 'text-muted-foreground',
+                  )}
                 >
                   {unitsOptionsLoading
                     ? 'Loading...'
@@ -623,7 +633,10 @@ export default function PreferencesSettingsPage() {
                   variant="outline"
                   role="combobox"
                   disabled={unitsOptionsLoading}
-                  className={cn('w-auto justify-between', !dateFormat.value && 'text-muted-foreground')}
+                  className={cn(
+                    'w-auto justify-between rounded-[var(--radius-lg)]',
+                    !dateFormat.value && 'text-muted-foreground',
+                  )}
                 >
                   {unitsOptionsLoading
                     ? 'Loading...'
@@ -675,7 +688,10 @@ export default function PreferencesSettingsPage() {
                   variant="outline"
                   role="combobox"
                   disabled={unitsOptionsLoading}
-                  className={cn('w-auto justify-between', !timeFormat.value && 'text-muted-foreground')}
+                  className={cn(
+                    'w-auto justify-between rounded-[var(--radius-lg)]',
+                    !timeFormat.value && 'text-muted-foreground',
+                  )}
                 >
                   {unitsOptionsLoading ? 'Loading...' : timeFormat.value || 'Loading...'}
                   <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
@@ -722,7 +738,10 @@ export default function PreferencesSettingsPage() {
                   variant="outline"
                   role="combobox"
                   disabled={unitsOptionsLoading}
-                  className={cn('w-auto justify-between', !currency.value && 'text-muted-foreground')}
+                  className={cn(
+                    'w-auto justify-between rounded-[var(--radius-lg)]',
+                    !currency.value && 'text-muted-foreground',
+                  )}
                 >
                   {unitsOptionsLoading
                     ? 'Loading...'
