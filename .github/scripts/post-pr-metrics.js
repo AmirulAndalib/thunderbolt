@@ -1,0 +1,113 @@
+// @ts-check
+
+/**
+ * Posts or updates the PR Metrics comment on a pull request.
+ * Runs via actions/github-script — receives `github`, `context`, and `process.env`.
+ *
+ * @param {import('@actions/github').GitHub} github
+ * @param {import('@actions/github').context} context
+ */
+module.exports = async ({ github, context }) => {
+  const fs = require('fs')
+
+  // All metric values are passed in as environment variables by the workflow.
+  // The workflow captures them from individual step outputs.
+  const { LINES_ADDED, LINES_REMOVED, BUNDLE_SIZE, COVERAGE, BUILD_OUTCOME } = process.env
+
+  const bundleSize = parseInt(BUNDLE_SIZE ?? '0') || 0
+  const buildFailed = BUILD_OUTCOME !== 'success'
+
+  // The baseline is saved by ci.yml after every merge to main.
+  // It contains the bundle size and coverage % from the last main build,
+  // which lets us show a delta instead of just an absolute value.
+  let baselineBundle = null
+  let baselineCoverage = null
+  try {
+    if (fs.existsSync('.metrics-baseline/metrics.json')) {
+      const baseline = JSON.parse(fs.readFileSync('.metrics-baseline/metrics.json', 'utf8'))
+      baselineBundle = baseline.bundleSize
+      baselineCoverage = baseline.coverage
+    }
+  } catch (_) {}
+
+  // Converts a raw byte count into a human-readable string (B / KB / MB).
+  const fmt = (bytes) => {
+    if (!bytes) return 'N/A'
+    if (bytes < 1024) return `${bytes} B`
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+    return `${(bytes / (1024 * 1024)).toFixed(2)} MB`
+  }
+
+  // Builds the bundle size cell for the markdown table.
+  // - Red if grown by more than 50 KB, yellow above 10 KB, green otherwise.
+  // - Falls back gracefully when the build failed or no baseline exists yet.
+  const bundleLine = (() => {
+    if (buildFailed) return '_Build failed_'
+    if (!bundleSize) return '—'
+    if (baselineBundle) {
+      const delta = bundleSize - baselineBundle
+      const pct = ((delta / baselineBundle) * 100).toFixed(1)
+      const sign = delta >= 0 ? '+' : ''
+      const icon = delta > 51200 ? ':red_circle:' : delta > 10240 ? ':yellow_circle:' : ':green_circle:'
+      return `${icon} ${fmt(baselineBundle)} → ${fmt(bundleSize)} (${sign}${fmt(Math.abs(delta))}, ${sign}${pct}%)`
+    }
+    return `${fmt(bundleSize)} _(no baseline yet — merge to main first)_`
+  })()
+
+  // Builds the test coverage cell for the markdown table.
+  // - Red if coverage dropped more than 2%, yellow if any drop, green otherwise.
+  // - Falls back gracefully when coverage couldn't be parsed or no baseline exists yet.
+  const coverageLine = (() => {
+    if (!COVERAGE || COVERAGE === 'N/A') return '—'
+    if (baselineCoverage) {
+      const delta = (parseFloat(COVERAGE) - parseFloat(baselineCoverage)).toFixed(1)
+      const sign = parseFloat(delta) >= 0 ? '+' : ''
+      const icon =
+        parseFloat(delta) < -2 ? ':red_circle:' : parseFloat(delta) < 0 ? ':yellow_circle:' : ':green_circle:'
+      return `${icon} ${baselineCoverage}% → ${COVERAGE}% (${sign}${delta}%)`
+    }
+    return `${COVERAGE}% _(no baseline yet — merge to main first)_`
+  })()
+
+  const runUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
+  const now = new Date().toUTCString()
+
+  const body = [
+    '## PR Metrics',
+    '',
+    '| Metric | Value |',
+    '|--------|-------|',
+    `| Lines changed (prod code) | \`+${LINES_ADDED || 0} / -${LINES_REMOVED || 0}\` |`,
+    `| JS bundle size | ${bundleLine} |`,
+    `| Test coverage | ${coverageLine} |`,
+    `| Load time | _Needs preview deployments_ |`,
+    '',
+    `_Updated ${now} · [run #${context.runNumber}](${runUrl})_`,
+  ].join('\n')
+
+  // Look for a previous metrics comment from the Actions bot so we can
+  // update it in place rather than posting a new comment on every push.
+  const { data: comments } = await github.rest.issues.listComments({
+    owner: context.repo.owner,
+    repo: context.repo.repo,
+    issue_number: context.issue.number,
+  })
+
+  const existing = comments.find((c) => c.user.login === 'github-actions[bot]' && c.body.startsWith('## PR Metrics'))
+
+  if (existing) {
+    await github.rest.issues.updateComment({
+      owner: context.repo.owner,
+      repo: context.repo.repo,
+      comment_id: existing.id,
+      body,
+    })
+  } else {
+    await github.rest.issues.createComment({
+      owner: context.repo.owner,
+      repo: context.repo.repo,
+      issue_number: context.issue.number,
+      body,
+    })
+  }
+}

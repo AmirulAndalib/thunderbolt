@@ -1,0 +1,92 @@
+name: PR Metrics
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  metrics:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.bun/install/cache
+            node_modules
+          key: bun-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-
+
+      - name: Install dependencies
+        run: bun install
+
+      # --- Line count (excludes tests, migrations, lockfiles) ---
+      - name: Compute line count
+        id: lines
+        run: |
+          git fetch origin ${{ github.base_ref }}
+          STATS=$(git diff --numstat origin/${{ github.base_ref }}...HEAD -- \
+            ':!*.test.ts' ':!*.test.tsx' ':!*.spec.ts' ':!*.spec.tsx' \
+            ':!backend/drizzle/**' ':!bun.lock' ':!*.lock')
+          ADDED=$(echo "$STATS" | awk '{sum += $1} END {print sum+0}')
+          REMOVED=$(echo "$STATS" | awk '{sum += $2} END {print sum+0}')
+          echo "added=$ADDED" >> $GITHUB_OUTPUT
+          echo "removed=$REMOVED" >> $GITHUB_OUTPUT
+
+      # --- Bundle size ---
+      - name: Build
+        id: build
+        run: bun run build
+        continue-on-error: true
+        env:
+          NODE_ENV: production
+          NODE_OPTIONS: --max-old-space-size=4096
+
+      - name: Compute bundle size
+        id: bundle
+        if: steps.build.outcome == 'success'
+        run: |
+          SIZE=$(find dist/assets -name '*.js' ! -name '*.map' -exec wc -c {} + 2>/dev/null | tail -1 | awk '{print $1}')
+          echo "size=${SIZE:-0}" >> $GITHUB_OUTPUT
+
+      # --- Test coverage ---
+      - name: Run tests with coverage
+        id: coverage
+        run: |
+          bun test ./src ./scripts --timeout 5000 --coverage 2>&1 | tee /tmp/coverage.txt || true
+          TOTAL=$(grep -E "All files" /tmp/coverage.txt | grep -oE '[0-9]+\.[0-9]+' | head -1)
+          echo "total=${TOTAL:-N/A}" >> $GITHUB_OUTPUT
+        continue-on-error: true
+
+      # --- Restore main baseline for deltas ---
+      - name: Restore main baseline
+        uses: actions/cache/restore@v4
+        with:
+          path: .metrics-baseline
+          key: pr-metrics-main-${{ github.event.pull_request.base.sha }}
+          restore-keys: pr-metrics-main-
+
+      # --- Post or update the metrics comment ---
+      - name: Post metrics comment
+        uses: actions/github-script@v7
+        env:
+          LINES_ADDED: ${{ steps.lines.outputs.added }}
+          LINES_REMOVED: ${{ steps.lines.outputs.removed }}
+          BUNDLE_SIZE: ${{ steps.bundle.outputs.size }}
+          COVERAGE: ${{ steps.coverage.outputs.total }}
+          BUILD_OUTCOME: ${{ steps.build.outcome }}
+        with:
+          script: |
+            const script = require('./.github/scripts/post-pr-metrics.js')
+            await script({ github, context })
