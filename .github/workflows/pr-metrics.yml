@@ -88,5 +88,5 @@ jobs:
           BUILD_OUTCOME: ${{ steps.build.outcome }}
         with:
           script: |
-            const script = require('./.github/scripts/post-pr-metrics.js')
+            const script = require('./.github/scripts/post-pr-metrics.cjs')
             await script({ github, context })
