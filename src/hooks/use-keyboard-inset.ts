@@ -6,7 +6,9 @@ import { useLayoutEffect } from 'react'
  * desktop signatures that also include "Safari" in the UA string.
  */
 const isMobileWebKit = (): boolean => {
-  if (typeof navigator === 'undefined' || typeof window === 'undefined') return false
+  if (typeof navigator === 'undefined' || typeof window === 'undefined') {
+    return false
+  }
   const ua = navigator.userAgent
   const isMobileViewport = window.innerWidth <= 768
   const isWebKit = /AppleWebKit/.test(ua) && /Mobile/.test(ua)
@@ -34,13 +36,19 @@ const isMobileWebKit = (): boolean => {
  */
 export const useKeyboardInset = (): void => {
   useLayoutEffect(() => {
-    if (!isMobileWebKit()) return
+    if (!isMobileWebKit()) {
+      return
+    }
 
     const vv = window.visualViewport
-    if (!vv) return
+    if (!vv) {
+      return
+    }
 
     const root = document.getElementById('root')
-    if (!root) return
+    if (!root) {
+      return
+    }
 
     // Add class so CSS can scope fixed-positioning styles
     root.classList.add('keyboard-inset-active')
