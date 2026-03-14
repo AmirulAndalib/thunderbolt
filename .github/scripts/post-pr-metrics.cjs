@@ -12,9 +12,11 @@ module.exports = async ({ github, context }) => {
 
   // All metric values are passed in as environment variables by the workflow.
   // The workflow captures them from individual step outputs.
-  const { LINES_ADDED, LINES_REMOVED, BUNDLE_SIZE, COVERAGE, BUILD_OUTCOME } = process.env
+  const { LINES_ADDED, LINES_REMOVED, BUNDLE_GZIP, COVERAGE, BUILD_OUTCOME } = process.env
 
-  const bundleSize = parseInt(BUNDLE_SIZE ?? '0') || 0
+  // BUNDLE_GZIP is the gzipped JS bundle size in bytes — what users actually download.
+  // Measured by size-limit, which is more accurate than summing raw file sizes.
+  const bundleSize = parseInt(BUNDLE_GZIP ?? '0') || 0
   const buildFailed = BUILD_OUTCOME !== 'success'
 
   // The baseline is saved by ci.yml after every merge to main.
@@ -78,7 +80,7 @@ module.exports = async ({ github, context }) => {
     '| Metric | Value |',
     '|--------|-------|',
     `| Lines changed (prod code) | \`+${LINES_ADDED || 0} / -${LINES_REMOVED || 0}\` |`,
-    `| JS bundle size | ${bundleLine} |`,
+    `| JS bundle size (gzipped) | ${bundleLine} |`,
     `| Test coverage | ${coverageLine} |`,
     `| Load time | _Needs preview deployments_ |`,
     '',

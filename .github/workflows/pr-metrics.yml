@@ -44,7 +44,7 @@ jobs:
           echo "added=$ADDED" >> $GITHUB_OUTPUT
           echo "removed=$REMOVED" >> $GITHUB_OUTPUT
 
-      # --- Bundle size ---
+      # --- Bundle size (gzipped, via size-limit) ---
       - name: Build
         id: build
         run: bun run build
@@ -53,12 +53,15 @@ jobs:
           NODE_ENV: production
           NODE_OPTIONS: --max-old-space-size=4096
 
-      - name: Compute bundle size
+      - name: Run size-limit
         id: bundle
         if: steps.build.outcome == 'success'
         run: |
-          SIZE=$(find dist/assets -name '*.js' ! -name '*.map' -exec wc -c {} + 2>/dev/null | tail -1 | awk '{print $1}')
-          echo "size=${SIZE:-0}" >> $GITHUB_OUTPUT
+          # size-limit --json outputs gzipped sizes, which is what users actually download.
+          # We extract the first entry's gzip value and save it for the metrics comment.
+          bunx size-limit --json > /tmp/size-limit.json 2>/dev/null || true
+          GZIP=$(jq -r '.[0].gzip // 0' /tmp/size-limit.json 2>/dev/null || echo 0)
+          echo "gzip=${GZIP}" >> $GITHUB_OUTPUT
 
       # --- Test coverage ---
       - name: Run tests with coverage
@@ -83,7 +86,7 @@ jobs:
         env:
           LINES_ADDED: ${{ steps.lines.outputs.added }}
           LINES_REMOVED: ${{ steps.lines.outputs.removed }}
-          BUNDLE_SIZE: ${{ steps.bundle.outputs.size }}
+          BUNDLE_GZIP: ${{ steps.bundle.outputs.gzip }}
           COVERAGE: ${{ steps.coverage.outputs.total }}
           BUILD_OUTCOME: ${{ steps.build.outcome }}
         with:
