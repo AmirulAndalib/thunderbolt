@@ -16,7 +16,9 @@ export type EncryptedRecord = {
  */
 export const encryptRecord = async (plaintext: string): Promise<EncryptedRecord> => {
   const masterKey = await getMasterKey()
-  if (!masterKey) throw new EncryptionError('No master key available')
+  if (!masterKey) {
+    throw new EncryptionError('No master key available')
+  }
 
   const contentKey = await generateContentKey()
   const plaintextBytes = new TextEncoder().encode(plaintext)
@@ -38,7 +40,9 @@ export const encryptRecord = async (plaintext: string): Promise<EncryptedRecord>
  */
 export const decryptRecord = async (record: EncryptedRecord): Promise<string> => {
   const masterKey = await getMasterKey()
-  if (!masterKey) throw new EncryptionError('No master key available')
+  if (!masterKey) {
+    throw new EncryptionError('No master key available')
+  }
 
   try {
     const wrappedKeyBytes = fromBase64(record.wrappedContentKey)
@@ -48,7 +52,9 @@ export const decryptRecord = async (record: EncryptedRecord): Promise<string> =>
     const plaintextBytes = await decrypt(contentKey, iv, ciphertext)
     return new TextDecoder().decode(plaintextBytes)
   } catch (e) {
-    if (e instanceof EncryptionError) throw e
+    if (e instanceof EncryptionError) {
+      throw e
+    }
     throw new DecryptionError(e instanceof Error ? e.message : 'Decryption failed')
   }
 }

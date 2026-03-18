@@ -16,9 +16,7 @@ export type KeySetupResult =
  * If passphrase is omitted, generates a random key.
  * Returns the recovery key hex string for display.
  */
-export const createNewKey = async (
-  passphrase?: string,
-): Promise<{ result: KeySetupResult; recoveryKey: string }> => {
+export const createNewKey = async (passphrase?: string): Promise<{ result: KeySetupResult; recoveryKey: string }> => {
   let masterKey: CryptoKey
 
   if (passphrase) {
@@ -51,16 +49,22 @@ export const importFromPassphrase = async (passphrase: string): Promise<KeySetup
   // TODO: Fetch salt and canary from server when backend endpoints exist
   // const { salt, canary } = await api.get('/api/encryption/setup')
   const salt = getSalt()
-  if (!salt) return { success: false, error: 'WRONG_KEY' }
+  if (!salt) {
+    return { success: false, error: 'WRONG_KEY' }
+  }
 
   const canaryJson = keyStorage.get('thunderbolt_enc_canary')
-  if (!canaryJson) return { success: false, error: 'WRONG_KEY' }
+  if (!canaryJson) {
+    return { success: false, error: 'WRONG_KEY' }
+  }
 
   const canary: KeyCanary = JSON.parse(canaryJson)
   const masterKey = await deriveKeyFromPassphrase(passphrase, salt)
   const isValid = await verifyCanary(masterKey, canary)
 
-  if (!isValid) return { success: false, error: 'WRONG_KEY' }
+  if (!isValid) {
+    return { success: false, error: 'WRONG_KEY' }
+  }
 
   const keyBytes = await exportKeyBytes(masterKey)
   await setMasterKey(keyBytes)
@@ -77,7 +81,9 @@ export const importFromRecoveryKey = async (hexKey: string): Promise<KeySetupRes
   try {
     keyBytes = decodeRecoveryKey(hexKey)
   } catch (e) {
-    if (e instanceof ValidationError) return { success: false, error: 'INVALID_FORMAT' }
+    if (e instanceof ValidationError) {
+      return { success: false, error: 'INVALID_FORMAT' }
+    }
     throw e
   }
 
@@ -94,7 +100,9 @@ export const importFromRecoveryKey = async (hexKey: string): Promise<KeySetupRes
 
   const canary: KeyCanary = JSON.parse(canaryJson)
   const isValid = await verifyCanary(masterKey, canary)
-  if (!isValid) return { success: false, error: 'WRONG_KEY' }
+  if (!isValid) {
+    return { success: false, error: 'WRONG_KEY' }
+  }
 
   await setMasterKey(keyBytes)
   return { success: true }

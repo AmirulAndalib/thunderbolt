@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import {
-  KeyState,
+  keyStates,
   _clearCache,
   clearMasterKey,
   getKeyState,
@@ -119,18 +119,18 @@ describe('getKeyState', () => {
   })
 
   test('returns NO_KEY when absent', () => {
-    expect(getKeyState()).toBe(KeyState.NO_KEY)
+    expect(getKeyState()).toBe(keyStates.NO_KEY)
   })
 
   test('returns KEY_PRESENT after setMasterKey', async () => {
     const key = await generateMasterKey()
     await setMasterKey(await exportKeyBytes(key))
-    expect(getKeyState()).toBe(KeyState.KEY_PRESENT)
+    expect(getKeyState()).toBe(keyStates.KEY_PRESENT)
   })
 
   test('returns KEY_LOCKED when set directly', () => {
     localStorage.setItem('thunderbolt_key_state', 'KEY_LOCKED')
-    expect(getKeyState()).toBe(KeyState.KEY_LOCKED)
+    expect(getKeyState()).toBe(keyStates.KEY_LOCKED)
   })
 })
 

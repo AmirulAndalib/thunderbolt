@@ -24,8 +24,9 @@ export {
 export { decodeRecoveryKey, deriveKeyFromPassphrase, encodeRecoveryKey, generateSalt } from './key-derivation'
 
 // Master key manager
+export type { KeyState } from './master-key'
 export {
-  KeyState,
+  keyStates,
   clearMasterKey,
   exportMasterKeyBytes,
   getKeyState,
@@ -54,7 +55,8 @@ export { createNewKey, importFromPassphrase, importFromRecoveryKey } from './key
 
 // Sync gate
 export type { EnableSyncResult } from './sync-gate'
-export { SyncState, disableSync, enableSync, getSyncState, onSyncEnabled } from './sync-gate'
+export type { SyncState } from './sync-gate'
+export { syncStates, disableSync, enableSync, getSyncState, onSyncEnabled } from './sync-gate'
 
 // Migration
 export type { MigrationStatus } from './migration'

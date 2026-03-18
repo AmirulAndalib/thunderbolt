@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 import { _clearCache, setMasterKey } from './master-key'
 import { exportKeyBytes, generateMasterKey } from './primitives'
-import { SyncState, _clearCallbacks, disableSync, enableSync, getSyncState, onSyncEnabled } from './sync-gate'
+import { syncStates, _clearCallbacks, disableSync, enableSync, getSyncState, onSyncEnabled } from './sync-gate'
 
 describe('sync gate', () => {
   beforeEach(() => {
@@ -17,13 +17,13 @@ describe('sync gate', () => {
   })
 
   test('getSyncState returns DISABLED by default', () => {
-    expect(getSyncState()).toBe(SyncState.DISABLED)
+    expect(getSyncState()).toBe(syncStates.DISABLED)
   })
 
   test('enableSync returns REQUIRES_KEY_SETUP when no key', () => {
     const result = enableSync()
     expect(result).toEqual({ status: 'REQUIRES_KEY_SETUP' })
-    expect(getSyncState()).toBe(SyncState.DISABLED)
+    expect(getSyncState()).toBe(syncStates.DISABLED)
   })
 
   test('enableSync returns ENABLED when key is present', async () => {
@@ -32,7 +32,7 @@ describe('sync gate', () => {
 
     const result = enableSync()
     expect(result).toEqual({ status: 'ENABLED' })
-    expect(getSyncState()).toBe(SyncState.ENABLED)
+    expect(getSyncState()).toBe(syncStates.ENABLED)
   })
 
   test('enableSync fires onSyncEnabled callbacks', async () => {
@@ -52,7 +52,7 @@ describe('sync gate', () => {
     enableSync()
 
     disableSync()
-    expect(getSyncState()).toBe(SyncState.DISABLED)
+    expect(getSyncState()).toBe(syncStates.DISABLED)
   })
 
   test('disableSync does not clear the key', async () => {

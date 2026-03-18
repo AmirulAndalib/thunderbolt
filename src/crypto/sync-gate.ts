@@ -1,12 +1,12 @@
 import { keyStorage } from './key-storage'
-import { KeyState, getKeyState } from './master-key'
+import { keyStates, getKeyState } from './master-key'
 
-export const SyncState = {
+export const syncStates = {
   DISABLED: 'DISABLED',
   ENABLED: 'ENABLED',
 } as const
 
-export type SyncState = (typeof SyncState)[keyof typeof SyncState]
+export type SyncState = (typeof syncStates)[keyof typeof syncStates]
 
 export type EnableSyncResult = { status: 'ENABLED' } | { status: 'REQUIRES_KEY_SETUP' }
 
@@ -18,7 +18,7 @@ let _onSyncEnabledCallbacks: Array<() => void> = []
 /** Returns the current sync state. Synchronous. */
 export const getSyncState = (): SyncState => {
   const stored = keyStorage.get(SYNC_ENABLED_KEY)
-  return stored === 'true' ? SyncState.ENABLED : SyncState.DISABLED
+  return stored === 'true' ? syncStates.ENABLED : syncStates.DISABLED
 }
 
 /**
@@ -28,7 +28,7 @@ export const getSyncState = (): SyncState => {
  */
 export const enableSync = (): EnableSyncResult => {
   const state = getKeyState()
-  if (state === KeyState.NO_KEY) {
+  if (state === keyStates.NO_KEY) {
     return { status: 'REQUIRES_KEY_SETUP' }
   }
   keyStorage.set(SYNC_ENABLED_KEY, 'true')
