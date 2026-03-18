@@ -58,10 +58,6 @@ export type { EnableSyncResult } from './sync-gate'
 export type { SyncState } from './sync-gate'
 export { syncStates, disableSync, enableSync, getSyncState, onSyncEnabled } from './sync-gate'
 
-// Migration
-export type { MigrationStatus } from './migration'
-export { migrateLocalData } from './migration'
-
 // Phase 3 stubs — user key pair
 export { generateUserKeyPair, getUserPrivateKey, getUserPublicKey } from './user-key-pair'
 
