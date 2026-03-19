@@ -1,4 +1,5 @@
 import { useAuth } from '@/contexts'
+import { useSignInModal } from '@/contexts/sign-in-modal-context'
 import { useCountryUnits } from '@/hooks/use-country-units'
 import { useLocationSearch, type LocationData } from '@/hooks/use-location-search'
 import { useLocalizationDropdowns } from '@/hooks/use-localization-dropdowns'
@@ -88,6 +89,7 @@ export default function PreferencesSettingsPage() {
   const authClient = useAuth()
   const { data: session } = authClient.useSession()
   const isAuthenticated = !!session?.user
+  const { openSignInModal } = useSignInModal()
 
   const { fetchCountryUnits } = useCountryUnits()
 
@@ -360,7 +362,6 @@ export default function PreferencesSettingsPage() {
           <div className="flex flex-col gap-2">
             <label className="text-sm font-medium">Theme</label>
             <ThemeToggle />
-            <p className="text-sm text-muted-foreground">Choose your preferred theme.</p>
           </div>
 
           <div className="h-px bg-border -mx-6" />
@@ -375,7 +376,7 @@ export default function PreferencesSettingsPage() {
               >
                 Haptic Feedback
               </ModificationIndicator>
-              <p className="text-sm text-muted-foreground">Enable vibration feedback for interactive elements.</p>
+              <p className="text-sm text-muted-foreground">Vibrate on tap</p>
             </div>
             <Switch checked={hapticsEnabled.value} onCheckedChange={(value) => hapticsEnabled.setValue(value)} />
           </div>
@@ -414,7 +415,7 @@ export default function PreferencesSettingsPage() {
                 }
               }}
             />
-            <p className="text-sm text-muted-foreground">Your assistant will use this name to address you.</p>
+            <p className="text-sm text-muted-foreground">How Thunderbolt salutes you</p>
           </div>
         </div>
       </SectionCard>
@@ -494,7 +495,7 @@ export default function PreferencesSettingsPage() {
                 </Command>
               </PopoverContent>
             </Popover>
-            <p className="text-sm text-muted-foreground">Select your location to enable location-based features.</p>
+            <p className="text-sm text-muted-foreground">Enables location-based responses</p>
           </div>
 
           <div className="h-px bg-border -mx-6" />
@@ -792,8 +793,8 @@ export default function PreferencesSettingsPage() {
                 </ModificationIndicator>
               </div>
               <p className="text-sm text-muted-foreground">
-                Help us improve the app by sending anonymous usage info such as crashes, performance, and usage. No
-                personal data is collected or stored. Read more about our{' '}
+                Help us improve the app by sending anonymous usage info such as crashes, performance, and usage. Read
+                more about our{' '}
                 <a className="text-primary underline-offset-4 hover:underline" href={privacyPolicyUrl} target="_blank">
                   privacy policy
                 </a>
@@ -809,29 +810,26 @@ export default function PreferencesSettingsPage() {
 
       <SectionCard title="Data">
         <div className="flex flex-col gap-6">
-          <div className="flex-row flex items-center gap-4 justify-between">
-            <div>
-              <div className="mb-2">
-                <label className="text-sm font-medium">Sync data between devices</label>
+          {isAuthenticated ? (
+            <div className="flex-row flex items-center gap-4 justify-between">
+              <div>
+                <label className="text-sm font-medium">Sync Data Between Devices</label>
               </div>
-              <p className="text-sm text-muted-foreground">
-                Enable cloud synchronization to keep your data synced across devices.
-              </p>
-              {!isAuthenticated && <p className="text-xs text-muted-foreground mt-1">Sign in to enable sync.</p>}
+              <Switch checked={syncEnabled} onCheckedChange={handleSyncToggle} disabled={isConnecting} />
             </div>
-            <Switch
-              checked={syncEnabled}
-              onCheckedChange={handleSyncToggle}
-              disabled={!isAuthenticated || isConnecting}
-            />
-          </div>
+          ) : (
+            <div className="flex flex-col gap-2">
+              <label className="text-sm font-medium">Sync Data Between Devices</label>
+              <Button onClick={openSignInModal}>Sign In</Button>
+            </div>
+          )}
 
           {!isAuthenticated && (
             <>
               <div className="h-px bg-border -mx-6" />
 
               <div className="flex flex-col gap-2">
-                <p className="text-sm text-muted-foreground">Delete all of your local data.</p>
+                <label className="text-sm font-medium">Delete All Local Data</label>
                 <AlertDialog>
                   <AlertDialogTrigger asChild>
                     <Button variant="secondary" disabled={isResetting}>
