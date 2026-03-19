@@ -57,6 +57,7 @@ export default function ChatUI() {
         <AnimatePresence mode="wait">
           {hasMessages ? (
             <div key="messages" className="relative flex-1 min-h-0">
+              <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-12 bg-gradient-to-b from-background via-background/50 to-transparent" />
               <motion.div
                 ref={scrollContainerRef}
                 {...scrollHandlers}
