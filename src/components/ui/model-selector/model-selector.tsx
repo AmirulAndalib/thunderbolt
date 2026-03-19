@@ -1,3 +1,4 @@
+import { Button } from '@/components/ui/button'
 import { SearchableMenu, type SearchableMenuGroup, type SearchableMenuItem } from '@/components/ui/searchable-menu'
 import { useHaptics } from '@/hooks/use-haptics'
 import { cn } from '@/lib/utils'
@@ -128,14 +129,10 @@ export const ModelSelector = ({
   )
 
   const footer = onAddModels ? (
-    <button
-      type="button"
-      onClick={onAddModels}
-      className="flex items-center gap-2 text-sm font-medium hover:text-foreground text-muted-foreground transition-colors w-full cursor-pointer"
-    >
+    <Button variant="ghost" onClick={onAddModels} className="w-full justify-start gap-2 text-muted-foreground">
       <Plus className="size-4" />
       Add Models
-    </button>
+    </Button>
   ) : undefined
 
   const { triggerSelection } = useHaptics()

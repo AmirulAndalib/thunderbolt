@@ -775,10 +775,10 @@ export default function ModelsPage() {
           <ResponsiveModalContentComposable className="sm:max-w-[500px] max-h-[90vh] overflow-y-auto">
             <ResponsiveModalHeader>
               <ResponsiveModalTitle>Add Model</ResponsiveModalTitle>
-              <ResponsiveModalDescription>Configure a new AI model for your assistant.</ResponsiveModalDescription>
+              <ResponsiveModalDescription className="sr-only">Add a new AI model</ResponsiveModalDescription>
             </ResponsiveModalHeader>
             <Form {...form}>
-              <form onSubmit={form.handleSubmit(onSubmit)} onKeyDown={handleKeyDown} className="grid gap-4 py-4">
+              <form onSubmit={form.handleSubmit(onSubmit)} onKeyDown={handleKeyDown} className="grid gap-4 pt-4 pb-2">
                 <FormField
                   control={form.control}
                   name="provider"
@@ -1015,8 +1015,8 @@ export default function ModelsPage() {
                   />
                 )}
 
-                <div className="flex justify-end gap-3">
-                  <Button variant="outline" onClick={() => handleDialogOpenChange(false)}>
+                <div className="flex justify-end gap-3 pt-2">
+                  <Button variant="ghost" onClick={() => handleDialogOpenChange(false)}>
                     Cancel
                   </Button>
                   <Button type="submit" disabled={addModelMutation.isPending}>

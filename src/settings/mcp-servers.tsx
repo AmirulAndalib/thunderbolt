@@ -307,11 +307,9 @@ export default function McpServersPage() {
           <ResponsiveModalContentComposable className="sm:max-w-[500px]">
             <ResponsiveModalHeader>
               <ResponsiveModalTitle>Add MCP Server</ResponsiveModalTitle>
-              <ResponsiveModalDescription>
-                Enter the URL of the MCP server you want to connect to.
-              </ResponsiveModalDescription>
+              <ResponsiveModalDescription className="sr-only">Add a new MCP server</ResponsiveModalDescription>
             </ResponsiveModalHeader>
-            <div className="grid gap-4 py-4">
+            <div className="grid gap-4 pt-4 pb-2">
               <div className="grid gap-2">
                 <Label htmlFor="url">Server URL</Label>
                 <Input
@@ -363,8 +361,8 @@ export default function McpServersPage() {
                 </div>
               )}
             </div>
-            <div className="flex justify-end gap-3">
-              <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>
+            <div className="flex justify-end gap-3 pt-2">
+              <Button variant="ghost" onClick={() => setIsAddDialogOpen(false)}>
                 Cancel
               </Button>
               <Button onClick={handleAddServer} disabled={!newServerUrl || connectionStatus !== 'success'}>
