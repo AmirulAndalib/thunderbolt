@@ -1,4 +1,14 @@
-import { BadgeCheck, Bell, ChevronsUpDown, CreditCard, Loader2, LogOut, Sparkles, Terminal, User } from 'lucide-react'
+import {
+  BadgeCheck,
+  Bell,
+  ChevronsUpDown,
+  CreditCard,
+  Loader2,
+  LogOut,
+  Sparkles,
+  Terminal,
+  UserRound,
+} from 'lucide-react'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 
@@ -104,7 +114,7 @@ export const SidebarFooter = ({ className }: SidebarFooterProps) => {
 
   const triggerContent = (
     <>
-      <User className="size-[var(--icon-size-default)] shrink-0 text-muted-foreground" />
+      <UserRound className="size-[var(--icon-size-default)] shrink-0 text-muted-foreground" />
       {isExpanded && (
         <>
           <div className="flex flex-1 flex-col justify-center text-left leading-tight min-w-0">
@@ -144,7 +154,7 @@ export const SidebarFooter = ({ className }: SidebarFooterProps) => {
                 )}
                 onClick={handleSignInClick}
               >
-                <User className="size-[var(--icon-size-default)] text-muted-foreground" />
+                <UserRound className="size-[var(--icon-size-default)] text-muted-foreground" />
               </button>
             ) : !user ? (
               // Not logged in - expanded
@@ -156,7 +166,7 @@ export const SidebarFooter = ({ className }: SidebarFooterProps) => {
                 )}
                 onClick={handleSignInClick}
               >
-                <User className="size-[var(--icon-size-default)] shrink-0 text-muted-foreground" />
+                <UserRound className="size-[var(--icon-size-default)] shrink-0 text-muted-foreground" />
                 <span className="truncate">Sign In</span>
               </button>
             ) : isDesktopCollapsed ? (
@@ -169,7 +179,7 @@ export const SidebarFooter = ({ className }: SidebarFooterProps) => {
                     menuOpen && 'bg-sidebar-accent text-sidebar-accent-foreground',
                   )}
                 >
-                  <User className="size-[var(--icon-size-default)] text-muted-foreground" />
+                  <UserRound className="size-[var(--icon-size-default)] text-muted-foreground" />
                 </button>
               </PopoverTrigger>
             ) : (
@@ -232,7 +242,7 @@ export const SidebarFooter = ({ className }: SidebarFooterProps) => {
         <div className="flex flex-col gap-2 bg-background">
           <div className="flex items-center gap-2 px-3 pt-3 pb-1 text-[length:var(--font-size-body)]">
             <div className="flex size-[var(--touch-height-sm)] shrink-0 items-center justify-center rounded-lg border border-border">
-              <User className={cn(iconSize, 'text-muted-foreground')} />
+              <UserRound className={cn(iconSize, 'text-muted-foreground')} />
             </div>
             <div className="flex flex-1 flex-col justify-center text-left leading-tight min-w-0">
               {displayName && <span className="truncate font-semibold">{displayName}</span>}
