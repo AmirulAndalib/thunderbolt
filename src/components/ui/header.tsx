@@ -95,7 +95,7 @@ export const Header = () => {
 
   // Desktop: Left-aligned with PowerSync status on the right
   return (
-    <header className="flex h-[var(--touch-height-xl)] w-full items-center justify-between px-2 flex-shrink-0 border-b border-border">
+    <header className="flex h-[calc(var(--touch-height-default)+1rem)] w-full items-center justify-between px-2 flex-shrink-0 border-b border-border">
       <div className="flex items-center">{modelSelector}</div>
       <PowerSyncStatus />
     </header>

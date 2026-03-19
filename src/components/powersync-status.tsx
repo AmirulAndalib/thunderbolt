@@ -4,9 +4,11 @@ import { useSyncEnabledToggle } from '@/hooks/use-sync-enabled-toggle'
 import { cn } from '@/lib/utils'
 import { Cloud, CloudOff, Loader2 } from 'lucide-react'
 import { SyncEnableWarningDialog } from '@/components/sync-enable-warning-dialog'
+import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Switch } from '@/components/ui/switch'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { useSignInModal } from '@/contexts/sign-in-modal-context'
 import { useState } from 'react'
 
 /**
@@ -17,6 +19,7 @@ export const PowerSyncStatus = () => {
   const authClient = useAuth()
   const { data: session } = authClient.useSession()
   const isAuthenticated = !!session?.user
+  const { openSignInModal } = useSignInModal()
   const [popoverOpen, setPopoverOpen] = useState(false)
 
   const { connectionStatus, hasSynced, lastSyncedAt } = usePowerSyncStatus()
@@ -64,11 +67,8 @@ export const PowerSyncStatus = () => {
     return <Cloud className="size-[var(--icon-size-default)] text-green-500" />
   }
 
-  const statusNote = !isAuthenticated
-    ? 'Sign in to enable sync'
-    : syncEnabled && !isConnected && connectionStatus !== 'connecting'
-      ? 'Changes will sync when back online'
-      : null
+  const statusNote =
+    syncEnabled && !isConnected && connectionStatus !== 'connecting' ? 'Changes will sync when back online' : null
 
   return (
     <>
@@ -98,18 +98,33 @@ export const PowerSyncStatus = () => {
                 <label className="text-sm font-medium" htmlFor="sync-toggle">
                   Cloud Sync
                 </label>
-                <Switch
-                  id="sync-toggle"
-                  checked={syncEnabled}
-                  onCheckedChange={handleSyncToggle}
-                  disabled={!isAuthenticated || isConnecting}
-                  aria-label="Enable cloud sync"
-                />
+                {isAuthenticated && (
+                  <Switch
+                    id="sync-toggle"
+                    checked={syncEnabled}
+                    onCheckedChange={handleSyncToggle}
+                    disabled={isConnecting}
+                    aria-label="Enable cloud sync"
+                  />
+                )}
               </div>
               <p className="text-sm text-muted-foreground mt-0.5">
-                Enable cloud synchronization to keep your data synced across devices.
+                {isAuthenticated
+                  ? 'Enable cloud synchronization to keep your data synced across devices.'
+                  : 'Keep all of your devices synced.'}
               </p>
-              {statusNote && <p className="text-xs text-muted-foreground mt-1">{statusNote}</p>}
+              {!isAuthenticated && (
+                <Button
+                  className="w-full mt-2"
+                  onClick={() => {
+                    setPopoverOpen(false)
+                    openSignInModal()
+                  }}
+                >
+                  Sign In
+                </Button>
+              )}
+              {statusNote && isAuthenticated && <p className="text-xs text-muted-foreground mt-1">{statusNote}</p>}
             </div>
           </div>
         </PopoverContent>
