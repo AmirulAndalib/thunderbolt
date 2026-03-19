@@ -12,4 +12,4 @@ export const termsOfServiceUrl = 'https://www.mozilla.org/en-US/about/legal/term
 export const iconSizeClass = 'size-[var(--icon-size-default)]'
 
 /** Default title shown for new/untitled chat threads */
-export const DEFAULT_CHAT_TITLE = 'New Chat'
+export const defaultChatTitle = 'New Chat'
