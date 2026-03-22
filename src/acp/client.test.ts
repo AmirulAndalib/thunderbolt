@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import type { SessionNotification, SessionUpdate } from '@agentclientprotocol/sdk'
+import type { SessionUpdate } from '@agentclientprotocol/sdk'
 import type { Mode, Model } from '@/types'
 import { createInProcessStream } from './streams'
 import { createBuiltInAgentHandler } from './built-in-agent'
@@ -49,10 +49,10 @@ const testModels: Model[] = [
     url: null,
     contextWindow: null,
     isSystem: null,
-    isFolder: null,
     defaultHash: null,
     deletedAt: null,
     userId: null,
+    description: null,
   },
 ]
 

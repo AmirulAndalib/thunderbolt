@@ -1,10 +1,4 @@
-import {
-  AgentSideConnection,
-  ClientSideConnection,
-  type Agent,
-  type SessionUpdate,
-  type Stream,
-} from '@agentclientprotocol/sdk'
+import { AgentSideConnection, ClientSideConnection, type Agent, type Stream } from '@agentclientprotocol/sdk'
 import type { SessionUpdateHandler } from './types'
 
 type CreateAcpClientOptions = {
@@ -38,7 +32,7 @@ export const createAcpClient = (options: CreateAcpClientOptions): AcpClientResul
       sessionUpdate: async (params) => {
         onSessionUpdate(params.update)
       },
-      requestPermission: async () => ({ outcome: 'cancelled' as const }),
+      requestPermission: async () => ({ outcome: { outcome: 'cancelled' as const } }),
     }),
     stream,
   )

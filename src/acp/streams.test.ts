@@ -1,46 +1,6 @@
-import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
+import { describe, expect, test } from 'bun:test'
 import { AgentSideConnection, ClientSideConnection } from '@agentclientprotocol/sdk'
 import { createInProcessStream } from './streams'
-import type { InProcessStreamPair } from './types'
-
-/**
- * Helper to create a connected client/agent pair for testing.
- * Returns the connections and a cleanup function.
- */
-const createTestPair = (agentHandlers?: Partial<Parameters<typeof AgentSideConnection>[0]>) => {
-  const { clientStream, agentStream } = createInProcessStream()
-
-  const receivedUpdates: unknown[] = []
-  let agentConnection: AgentSideConnection
-
-  const defaultAgent = (conn: AgentSideConnection) => ({
-    initialize: async () => ({ protocolVersion: 1 as const }),
-    newSession: async () => ({ sessionId: 'test-session' }),
-    prompt: async () => ({ stopReason: 'end_turn' as const }),
-    cancel: async () => {},
-    authenticate: async () => {},
-  })
-
-  agentConnection = new AgentSideConnection(
-    (conn) => ({
-      ...defaultAgent(conn),
-      ...(agentHandlers ? agentHandlers(conn) : {}),
-    }),
-    agentStream,
-  )
-
-  const clientConn = new ClientSideConnection(
-    () => ({
-      sessionUpdate: async (params) => {
-        receivedUpdates.push(params)
-      },
-      requestPermission: async () => ({ outcome: 'cancelled' as const }),
-    }),
-    clientStream,
-  )
-
-  return { clientConn, agentConnection, receivedUpdates, clientStream, agentStream }
-}
 
 describe('createInProcessStream', () => {
   test('returns client and agent stream objects with readable and writable', () => {
@@ -81,7 +41,7 @@ describe('createInProcessStream', () => {
     const clientConn = new ClientSideConnection(
       () => ({
         sessionUpdate: async () => {},
-        requestPermission: async () => ({ outcome: 'cancelled' as const }),
+        requestPermission: async () => ({ outcome: { outcome: 'cancelled' as const } }),
       }),
       clientStream,
     )
@@ -129,7 +89,7 @@ describe('createInProcessStream', () => {
         sessionUpdate: async (params) => {
           receivedUpdates.push(params)
         },
-        requestPermission: async () => ({ outcome: 'cancelled' as const }),
+        requestPermission: async () => ({ outcome: { outcome: 'cancelled' as const } }),
       }),
       clientStream,
     )
@@ -200,7 +160,7 @@ describe('createInProcessStream', () => {
             clientReceivedChunks.push(chunk.content.text)
           }
         },
-        requestPermission: async () => ({ outcome: 'cancelled' as const }),
+        requestPermission: async () => ({ outcome: { outcome: 'cancelled' as const } }),
       }),
       clientStream,
     )

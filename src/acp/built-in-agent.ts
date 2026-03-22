@@ -45,7 +45,7 @@ export const createBuiltInAgentHandler = (config: BuiltInAgentConfig) => {
       category: 'model',
       currentValue: currentModelId,
       options: models.map((m) => ({
-        id: m.id,
+        value: m.id,
         name: m.name,
       })),
     })

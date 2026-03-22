@@ -157,7 +157,7 @@ export const useHydrateChatStore = ({ id, isNew }: UseHydrateChatStoreParams) =>
       },
     })
 
-    const initResponse = await connection.initialize({ protocolVersion: 1 })
+    await connection.initialize({ protocolVersion: 1 })
     const acpNewSession = await connection.newSession({ cwd: '/', mcpServers: [] })
 
     createSession({

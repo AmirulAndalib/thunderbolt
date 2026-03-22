@@ -210,6 +210,7 @@ export const hydrateStore = (state: {
   // Create or update session - use defaults if selectedMode/Model is null
   if (state.id && state.chatInstance) {
     const sessionData = {
+      acpSession: null,
       chatInstance: state.chatInstance,
       chatThread: state.chatThread,
       id: state.id,

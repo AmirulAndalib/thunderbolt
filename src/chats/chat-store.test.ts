@@ -108,6 +108,7 @@ describe('chat-store', () => {
           [
             'test-id',
             {
+              acpSession: null,
               chatInstance,
               chatThread: null,
               id: 'test-id',

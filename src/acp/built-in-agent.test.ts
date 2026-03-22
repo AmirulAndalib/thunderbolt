@@ -60,10 +60,10 @@ const testModels: Model[] = [
     url: null,
     contextWindow: null,
     isSystem: null,
-    isFolder: null,
     defaultHash: null,
     deletedAt: null,
     userId: null,
+    description: null,
   },
   {
     id: 'model-gpt',
@@ -80,10 +80,10 @@ const testModels: Model[] = [
     url: null,
     contextWindow: null,
     isSystem: null,
-    isFolder: null,
     defaultHash: null,
     deletedAt: null,
     userId: null,
+    description: null,
   },
 ]
 
@@ -128,7 +128,7 @@ const createTestSetup = (options?: { events?: InferenceEvent[]; modes?: Mode[]; 
       sessionUpdate: async (params) => {
         receivedUpdates.push(params)
       },
-      requestPermission: async () => ({ outcome: 'cancelled' as const }),
+      requestPermission: async () => ({ outcome: { outcome: 'cancelled' as const } }),
     }),
     clientStream,
   )
@@ -197,7 +197,10 @@ describe('built-in agent', () => {
       expect(modelOption!.type).toBe('select')
 
       if (modelOption!.type === 'select') {
-        const selectOption = modelOption as { type: 'select'; options: Array<{ id: string; name: string }> }
+        const selectOption = modelOption as unknown as {
+          type: 'select'
+          options: Array<{ value: string; name: string }>
+        }
         expect(selectOption.options).toHaveLength(2)
       }
     })
@@ -429,7 +432,7 @@ describe('built-in agent', () => {
       const clientConn = new ClientSideConnection(
         () => ({
           sessionUpdate: async () => {},
-          requestPermission: async () => ({ outcome: 'cancelled' as const }),
+          requestPermission: async () => ({ outcome: { outcome: 'cancelled' as const } }),
         }),
         clientStream,
       )

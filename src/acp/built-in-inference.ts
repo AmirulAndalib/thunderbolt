@@ -1,4 +1,4 @@
-import type { InferenceEvent, RunInference } from './types'
+import type { RunInference } from './types'
 
 /**
  * Creates the inference function for the built-in agent.
