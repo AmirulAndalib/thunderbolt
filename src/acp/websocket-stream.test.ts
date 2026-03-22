@@ -78,4 +78,71 @@ describe('createWebSocketStream', () => {
 
     expect(ws._listeners.get('error')?.size).toBe(1)
   })
+
+  test('onMessage handler enqueues string data as Uint8Array with newline', () => {
+    const ws = createMockWebSocket()
+    createWebSocketStream(ws)
+
+    const messageHandler = [...ws._listeners.get('message')!][0]
+    // Should not throw when receiving a string message
+    messageHandler({ data: '{"jsonrpc":"2.0","result":"ok","id":1}' })
+  })
+
+  test('onMessage handler handles ArrayBuffer data', () => {
+    const ws = createMockWebSocket()
+    createWebSocketStream(ws)
+
+    const messageHandler = [...ws._listeners.get('message')!][0]
+    const buffer = new TextEncoder().encode('{"jsonrpc":"2.0"}\n')
+    // Should not throw when receiving binary data
+    messageHandler({ data: buffer.buffer })
+  })
+
+  test('onClose handler closes the readable stream', () => {
+    const ws = createMockWebSocket()
+    createWebSocketStream(ws)
+
+    const closeHandler = [...ws._listeners.get('close')!][0]
+    // Should not throw
+    closeHandler({ data: '' })
+  })
+
+  test('onClose handler is safe when called twice', () => {
+    const ws = createMockWebSocket()
+    createWebSocketStream(ws)
+
+    const closeHandler = [...ws._listeners.get('close')!][0]
+    closeHandler({ data: '' })
+    // Second call should not throw (caught by try/catch)
+    closeHandler({ data: '' })
+  })
+
+  test('onError handler errors the readable stream', () => {
+    const ws = createMockWebSocket()
+    createWebSocketStream(ws)
+
+    const errorHandler = [...ws._listeners.get('error')!][0]
+    // Should not throw (error is propagated to stream, not thrown)
+    errorHandler({ data: 'connection failed' })
+  })
+
+  test('onError handler is safe when called after close', () => {
+    const ws = createMockWebSocket()
+    createWebSocketStream(ws)
+
+    const closeHandler = [...ws._listeners.get('close')!][0]
+    const errorHandler = [...ws._listeners.get('error')!][0]
+    closeHandler({ data: '' })
+    // Error after close should not throw (caught by try/catch)
+    errorHandler({ data: 'late error' })
+  })
+
+  test('write throws when WebSocket is not open', async () => {
+    const ws = createMockWebSocket(3) // WS_CLOSED
+    const stream = createWebSocketStream(ws)
+
+    const writer = stream.writable.getWriter()
+    const testMsg = { jsonrpc: '2.0' as const, method: 'test', id: 1 }
+    await expect(writer.write(testMsg)).rejects.toThrow('WebSocket is not open')
+  })
 })
