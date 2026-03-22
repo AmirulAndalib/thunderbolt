@@ -99,15 +99,13 @@ export const AgentSelector = ({ agents, selectedAgent, onAgentChange, side, alig
   const renderItem = (item: SearchableMenuItem<AgentItemData>, isSelected: boolean) => (
     <div
       className={cn(
-        'w-full flex items-center justify-between px-3 py-2 rounded-lg transition-colors text-left cursor-pointer',
+        'w-full flex items-center gap-2 px-3 py-2 rounded-lg transition-colors text-left cursor-pointer min-w-0',
         'hover:bg-accent/50',
         isSelected && 'bg-accent',
       )}
     >
-      <div className="flex items-center gap-2 min-w-0">
-        {item.icon}
-        <span className="font-medium truncate">{item.label}</span>
-      </div>
+      {item.icon}
+      <span className="font-medium truncate">{item.label}</span>
     </div>
   )
 

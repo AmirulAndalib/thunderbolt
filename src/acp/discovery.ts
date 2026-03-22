@@ -25,8 +25,6 @@ export const knownCliAgents = [
   },
 ] as const
 
-export type KnownCliAgent = (typeof knownCliAgents)[number]
-
 /**
  * Function signature for checking if a command exists on the system.
  * Abstracted so it can be mocked in tests and implemented via Tauri shell in production.

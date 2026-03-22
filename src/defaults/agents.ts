@@ -42,7 +42,4 @@ export const defaultAgentBuiltIn: Agent = {
   defaultHash: null,
 }
 
-/**
- * Array of all default agents for iteration
- */
 export const defaultAgents: ReadonlyArray<Agent> = [defaultAgentBuiltIn] as const
