@@ -476,5 +476,71 @@ describe('built-in agent', () => {
       const modeUpdates = receivedUpdates.filter((u) => u.update.sessionUpdate === 'current_mode_update')
       expect(modeUpdates).toHaveLength(1)
     })
+
+    test('rejects setSessionMode for invalid session', async () => {
+      const { clientConn } = createTestSetup()
+
+      await clientConn.initialize({ protocolVersion: 1 })
+
+      await expect(
+        clientConn.setSessionMode({
+          sessionId: 'nonexistent-session',
+          modeId: 'mode-chat',
+        }),
+      ).rejects.toThrow()
+    })
+  })
+
+  describe('setSessionConfigOption', () => {
+    test('updates model selection', async () => {
+      const { clientConn } = createTestSetup()
+
+      await clientConn.initialize({ protocolVersion: 1 })
+      const session = await clientConn.newSession({ cwd: '/test', mcpServers: [] })
+
+      const response = await clientConn.setSessionConfigOption({
+        sessionId: session.sessionId,
+        configId: 'model',
+        value: 'model-gpt',
+      } as Parameters<typeof clientConn.setSessionConfigOption>[0])
+
+      expect(response.configOptions).toBeTruthy()
+      expect(response.configOptions).toHaveLength(1)
+
+      const modelOption = response.configOptions![0]
+      expect(modelOption.id).toBe('model')
+      if (modelOption.type === 'select') {
+        expect(modelOption.currentValue).toBe('model-gpt')
+      }
+    })
+
+    test('rejects for invalid session', async () => {
+      const { clientConn } = createTestSetup()
+
+      await clientConn.initialize({ protocolVersion: 1 })
+
+      await expect(
+        clientConn.setSessionConfigOption({
+          sessionId: 'nonexistent',
+          configId: 'model',
+          value: 'model-gpt',
+        } as Parameters<typeof clientConn.setSessionConfigOption>[0]),
+      ).rejects.toThrow()
+    })
+  })
+
+  describe('error handling', () => {
+    test('prompt rejects for invalid session ID', async () => {
+      const { clientConn } = createTestSetup()
+
+      await clientConn.initialize({ protocolVersion: 1 })
+
+      await expect(
+        clientConn.prompt({
+          sessionId: 'nonexistent-session',
+          prompt: [{ type: 'text', text: 'Hello' }],
+        }),
+      ).rejects.toThrow()
+    })
   })
 })
