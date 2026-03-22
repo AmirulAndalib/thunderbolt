@@ -1,5 +1,5 @@
 import type { PermissionOption, RequestPermissionRequest, ToolCallContent } from '@agentclientprotocol/sdk'
-import { FileEdit, Play, Shield, ShieldOff, X } from 'lucide-react'
+import { FileEdit, Play, Shield, ShieldOff } from 'lucide-react'
 import { DiffBlock } from './diff-block'
 
 type PermissionDialogProps = {
@@ -42,13 +42,7 @@ const getToolKindIcon = (kind?: string) => {
   }
 }
 
-const extractFilePath = (uri: string): string => {
-  try {
-    return uri.replace('file://', '')
-  } catch {
-    return uri
-  }
-}
+const extractFilePath = (uri: string): string => uri.replace('file://', '')
 
 /**
  * Permission request dialog shown when an ACP agent needs user authorization

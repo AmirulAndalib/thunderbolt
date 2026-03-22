@@ -99,4 +99,28 @@ describe('PermissionDialog', () => {
 
     expect(screen.getByText(/src\/main.ts/)).toBeInTheDocument()
   })
+
+  test('renders reject_always option', () => {
+    const onSelect = mock()
+    const options: PermissionOption[] = [
+      { optionId: 'allow-always', name: 'Allow always', kind: 'allow_always' },
+      { optionId: 'reject-always', name: 'Reject always', kind: 'reject_always' },
+    ]
+    render(<PermissionDialog request={createTestRequest({ options })} onSelect={onSelect} />)
+
+    expect(screen.getByText('Reject always')).toBeInTheDocument()
+    fireEvent.click(screen.getByText('Reject always'))
+    expect(onSelect).toHaveBeenCalledWith('reject-always')
+  })
+
+  test('uses default icon when no kind specified', () => {
+    const onSelect = mock()
+    const request = createTestRequest({
+      toolCall: createTestToolCall({ kind: undefined }),
+    })
+    render(<PermissionDialog request={request} onSelect={onSelect} />)
+
+    // Should still render without error
+    expect(screen.getByText('Edit file')).toBeInTheDocument()
+  })
 })

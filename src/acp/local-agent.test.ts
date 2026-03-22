@@ -176,6 +176,20 @@ describe('connectToLocalAgent', () => {
     expect(result.kill).toBeDefined()
     expect(typeof result.kill).toBe('function')
   })
+
+  test('passes a default permission handler that cancels', async () => {
+    const deps = createMockDeps()
+    const agent = createTestAgent()
+
+    await connectToLocalAgent(agent, deps)
+
+    // Extract the permission handler passed to createClientConnection
+    const createClientCall = (deps.createClientConnection as ReturnType<typeof mock>).mock.calls[0]
+    const permissionHandler = createClientCall[2] as (params: unknown) => Promise<{ outcome: { outcome: string } }>
+
+    const result = await permissionHandler({})
+    expect(result).toEqual({ outcome: { outcome: 'cancelled' } })
+  })
 })
 
 describe('disconnectLocalAgent', () => {
