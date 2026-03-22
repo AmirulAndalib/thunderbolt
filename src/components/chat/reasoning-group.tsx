@@ -71,7 +71,9 @@ export const ReasoningGroup = ({
   const acpContentBlocks = useMemo<ReactNode[]>(() => {
     const blocks: ReactNode[] = []
     for (const part of parts) {
-      if (!part.acpMetadata?.content?.length) continue
+      if (!part.acpMetadata?.content?.length) {
+        continue
+      }
       for (let i = 0; i < part.acpMetadata.content.length; i++) {
         const block = part.acpMetadata.content[i]
         if (block.type === 'diff') {

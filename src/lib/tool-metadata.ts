@@ -244,7 +244,9 @@ export const getToolKindIcon = (kind: ToolKind) => {
  * Generates a display name for an ACP ToolKind.
  */
 export const getToolKindDisplayName = (kind: ToolKind, title?: string): string => {
-  if (title) return title
+  if (title) {
+    return title
+  }
 
   switch (kind) {
     case 'read':
@@ -275,7 +277,9 @@ export const getToolKindDisplayName = (kind: ToolKind, title?: string): string =
  * Generates a loading message for an ACP ToolKind.
  */
 export const getToolKindLoadingMessage = (kind: ToolKind, title?: string): string => {
-  if (title) return `${title}...`
+  if (title) {
+    return `${title}...`
+  }
   return `${getToolKindDisplayName(kind)}...`
 }
 
