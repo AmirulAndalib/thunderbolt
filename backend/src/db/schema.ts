@@ -6,3 +6,6 @@ export * from './waitlist-schema'
 
 // Re-export PowerSync schema tables
 export * from './powersync-schema'
+
+// Re-export encryption schema tables (server-only, not synced via PowerSync)
+export * from './encryption-schema'
