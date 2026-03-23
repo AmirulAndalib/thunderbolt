@@ -2,24 +2,14 @@ import { SearchableMenu, type SearchableMenuGroup, type SearchableMenuItem } fro
 import { SelectorTrigger } from '@/components/ui/selector-trigger'
 import { cn } from '@/lib/utils'
 import type { Mode } from '@/types'
-import { Globe, MessageSquare, Microscope, Sparkles } from 'lucide-react'
+import { Sparkles } from 'lucide-react'
 import { useIsMobile } from '@/hooks/use-mobile'
-import { useMemo, type ReactNode } from 'react'
+import { useMemo } from 'react'
 
 export type ModeSelectorProps = {
   modes: Mode[]
   selectedMode: Mode | null
   onModeChange: (modeId: string) => void
-}
-
-const iconMap: Record<string, ReactNode> = {
-  'message-square': <MessageSquare className="size-[var(--icon-size-default)]" />,
-  globe: <Globe className="size-[var(--icon-size-default)]" />,
-  microscope: <Microscope className="size-[var(--icon-size-default)]" />,
-}
-
-const getModeIcon = (iconName: string): ReactNode => {
-  return iconMap[iconName] ?? <MessageSquare className="size-[var(--icon-size-default)]" />
 }
 
 type ModeItemData = {
@@ -33,7 +23,6 @@ const createModeGroups = (modes: Mode[]): SearchableMenuGroup<ModeItemData>[] =>
     items: modes.map((mode) => ({
       id: mode.id,
       label: mode.label,
-      icon: getModeIcon(mode.icon),
       data: { mode },
     })),
   },
@@ -61,7 +50,6 @@ export const ModeSelector = ({ modes, selectedMode, onModeChange }: ModeSelector
           isSelected ? 'bg-accent' : 'hover:bg-accent/50',
         )}
       >
-        {item.icon}
         <span>{item.label}</span>
         {isDefault && <span className="text-muted-foreground text-[length:var(--font-size-sm)]">Default</span>}
       </div>
