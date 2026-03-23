@@ -16,11 +16,13 @@ import { AgentSideConnection } from '@agentclientprotocol/sdk'
 type CreateAcpSessionOptions = {
   chatId: string
   agent: Agent
-  modes: Mode[]
-  models: Model[]
   selectedModeId: string
   selectedModelId: string
   mcpClients: MCPClient[]
+  /** Only needed for built-in agents — ignored for local/remote. */
+  modes?: Mode[]
+  /** Only needed for built-in agents — ignored for local/remote. */
+  models?: Model[]
 }
 
 type AcpSessionResult = {
@@ -36,13 +38,12 @@ type AcpSessionResult = {
 export const createAcpSession = async ({
   chatId,
   agent,
-  modes,
-  models,
   selectedModeId,
   selectedModelId,
   mcpClients,
+  modes = [],
+  models = [],
 }: CreateAcpSessionOptions): Promise<AcpSessionResult> => {
-  // Route to appropriate transport based on agent type
   if (agent.type === 'local') {
     return createLocalAgentSession(chatId, agent)
   }
@@ -51,10 +52,8 @@ export const createAcpSession = async ({
     return createRemoteAgentSession(chatId, agent)
   }
 
-  // Built-in agent: in-process streams
   const { clientStream, agentStream } = createInProcessStreams()
 
-  // Create the built-in agent handler
   const agentHandler = createBuiltInAgent({
     getModes: () => modes,
     getModels: () => models,
@@ -96,7 +95,6 @@ export const createAcpSession = async ({
     },
   })
 
-  // Create the ACP client with streaming update handler
   const acpClient = createAcpClient({
     stream: clientStream,
     onSessionUpdate: (update) => {
@@ -104,10 +102,8 @@ export const createAcpSession = async ({
     },
   })
 
-  // Start the agent side
   new AgentSideConnection(agentHandler, agentStream)
 
-  // Initialize and create session
   await acpClient.initialize()
   const sessionState = await acpClient.createSession()
 
@@ -125,14 +121,20 @@ const pendingConnections = new Map<string, Promise<AcpClient>>()
 export const ensureAcpConnection = async (sessionId: string): Promise<AcpClient> => {
   const store = useChatStore.getState()
   const session = store.sessions.get(sessionId)
-  if (!session) throw new Error('No session found')
+  if (!session) {
+    throw new Error('No session found')
+  }
 
   // Already connected
-  if (session.acpClient) return session.acpClient
+  if (session.acpClient) {
+    return session.acpClient
+  }
 
   // Already connecting — dedup concurrent calls
   const pending = pendingConnections.get(sessionId)
-  if (pending) return pending
+  if (pending) {
+    return pending
+  }
 
   const connectPromise = (async () => {
     store.setSessionStatus(sessionId, 'connecting')
@@ -140,8 +142,6 @@ export const ensureAcpConnection = async (sessionId: string): Promise<AcpClient>
     const { acpClient, sessionState } = await createAcpSession({
       chatId: sessionId,
       agent: session.agentConfig,
-      modes: [],
-      models: [],
       selectedModeId: session.currentModeId ?? session.selectedMode.id,
       selectedModelId: session.selectedModel.id,
       mcpClients: useChatStore.getState().mcpClients,

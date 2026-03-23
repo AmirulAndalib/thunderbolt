@@ -1,7 +1,7 @@
 import { isTauri, isDesktop } from '@/lib/platform'
 import { localAgentCandidates, hashAgent } from '@/defaults/agents'
 import { agentsTable } from '@/db/tables'
-import { eq } from 'drizzle-orm'
+import { eq, inArray } from 'drizzle-orm'
 import type { AnyDrizzleDatabase } from '@/db/database-interface'
 import type { Agent } from '@/types'
 
@@ -37,32 +37,35 @@ export const discoverAndSeedLocalAgents = async (db: AnyDrizzleDatabase): Promis
   const candidatesWithCommand = localAgentCandidates.filter((c) => c.command)
   const existenceResults = await Promise.all(candidatesWithCommand.map((c) => commandExists(c.command!)))
 
-  const discovered: Agent[] = []
+  const discovered = candidatesWithCommand.filter((_, i) => existenceResults[i])
+  if (discovered.length === 0) {
+    return []
+  }
 
-  for (let i = 0; i < candidatesWithCommand.length; i++) {
-    if (!existenceResults[i]) {
-      continue
-    }
+  // Batch-fetch existing rows for all discovered agents
+  const existingRows = await db
+    .select()
+    .from(agentsTable)
+    .where(
+      inArray(
+        agentsTable.id,
+        discovered.map((c) => c.id),
+      ),
+    )
+  const existingById = new Map(existingRows.map((r) => [r.id, r]))
 
-    const candidate = candidatesWithCommand[i]
-
-    // Upsert: insert if missing, or update if defaults changed
-    const existing = await db.select().from(agentsTable).where(eq(agentsTable.id, candidate.id))
+  for (const candidate of discovered) {
     const candidateHash = hashAgent(candidate)
+    const existing = existingById.get(candidate.id)
 
-    if (existing.length === 0) {
-      await db.insert(agentsTable).values({
-        ...candidate,
-        defaultHash: candidateHash,
-      })
-    } else if (existing[0].defaultHash !== candidateHash) {
+    if (!existing) {
+      await db.insert(agentsTable).values({ ...candidate, defaultHash: candidateHash })
+    } else if (existing.defaultHash !== candidateHash) {
       await db
         .update(agentsTable)
         .set({ ...candidate, defaultHash: candidateHash })
         .where(eq(agentsTable.id, candidate.id))
     }
-
-    discovered.push(candidate)
   }
 
   return discovered

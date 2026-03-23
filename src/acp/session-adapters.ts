@@ -28,7 +28,6 @@ const acpModelDefaults = {
   supportsParallelToolCalls: 1,
 } as const
 
-/** Convert an ACP SessionMode to a Mode object. */
 export const modeFromSessionMode = (sessionMode: SessionMode, icon = 'message-square'): Mode => ({
   id: sessionMode.id,
   name: sessionMode.id,
@@ -37,7 +36,6 @@ export const modeFromSessionMode = (sessionMode: SessionMode, icon = 'message-sq
   ...acpModeDefaults,
 })
 
-/** Convert an ACP config option value to a Model object. */
 export const modelFromConfigOption = (opt: { value: string; name: string; description?: string | null }): Model => ({
   id: opt.value,
   name: opt.name,
@@ -46,10 +44,6 @@ export const modelFromConfigOption = (opt: { value: string; name: string; descri
   ...acpModelDefaults,
 })
 
-/**
- * Extract the model select config option from ACP session config.
- * Returns the options array and current value, or null if not available.
- */
 export const extractModelConfig = (
   configOptions: SessionConfigOption[],
 ): {
@@ -67,10 +61,6 @@ export const extractModelConfig = (
   }
 }
 
-/**
- * Derive a Mode from ACP session state for the current mode.
- * Returns null if no modes are available.
- */
 export const modeFromAcpSession = (sessionState: AgentSessionState): Mode | null => {
   const currentId = sessionState.currentModeId
   const acpMode = sessionState.availableModes.find((m) => m.id === currentId) ?? sessionState.availableModes[0]
@@ -80,10 +70,6 @@ export const modeFromAcpSession = (sessionState: AgentSessionState): Mode | null
   return modeFromSessionMode(acpMode, 'terminal')
 }
 
-/**
- * Derive a Model from ACP session state for the current model.
- * Returns null if no model config is available.
- */
 export const modelFromAcpSession = (sessionState: AgentSessionState): Model | null => {
   const config = extractModelConfig(sessionState.configOptions)
   if (!config) {

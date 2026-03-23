@@ -159,7 +159,9 @@ const createRemoteAgent = async () => {
 
 const createTestThread = async (modelId: string, title = 'Test Thread', agentId?: string) => {
   const model = await getModel(getDb(), modelId)
-  if (!model) throw new Error('Test setup failed')
+  if (!model) {
+    throw new Error('Test setup failed')
+  }
   const threadId = uuidv7()
   await createChatThread(
     getDb(),

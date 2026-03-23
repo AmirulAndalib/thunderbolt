@@ -53,6 +53,13 @@ export const createAcpClient = ({ stream, onSessionUpdate, onPermissionRequest }
 
   const connection = new ClientSideConnection(client, stream)
 
+  const requireSession = (): AgentSessionState => {
+    if (!sessionState) {
+      throw new Error('No active session. Call createSession() first.')
+    }
+    return sessionState
+  }
+
   return {
     connection,
 
@@ -83,31 +90,25 @@ export const createAcpClient = ({ stream, onSessionUpdate, onPermissionRequest }
     },
 
     prompt: async (text: string) => {
-      if (!sessionState) {
-        throw new Error('No active session. Call createSession() first.')
-      }
+      const session = requireSession()
       return connection.prompt({
-        sessionId: sessionState.sessionId,
+        sessionId: session.sessionId,
         prompt: [{ type: 'text', text }],
       })
     },
 
     setMode: async (modeId: string) => {
-      if (!sessionState) {
-        throw new Error('No active session')
-      }
+      const session = requireSession()
       return connection.setSessionMode({
-        sessionId: sessionState.sessionId,
+        sessionId: session.sessionId,
         modeId,
       })
     },
 
     setConfigOption: async (configId: string, value: string) => {
-      if (!sessionState) {
-        throw new Error('No active session')
-      }
+      const session = requireSession()
       return connection.setSessionConfigOption({
-        sessionId: sessionState.sessionId,
+        sessionId: session.sessionId,
         configId,
         value,
       })

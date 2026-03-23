@@ -234,7 +234,9 @@ export const useHydrateChatStore = ({ id, isNew }: UseHydrateChatStoreParams) =>
         .then(() => {
           const { sessions, updateSession: update } = useChatStore.getState()
           const s = sessions.get(id)
-          if (!s) return
+          if (!s) {
+            return
+          }
 
           const acpSessionState: AgentSessionState = {
             sessionId: id,
@@ -246,8 +248,12 @@ export const useHydrateChatStore = ({ id, isNew }: UseHydrateChatStoreParams) =>
           const derivedModel = modelFromAcpSession(acpSessionState)
 
           const updates: Partial<ChatSession> = { status: 'ready' as const }
-          if (derivedMode) updates.selectedMode = derivedMode
-          if (derivedModel) updates.selectedModel = derivedModel
+          if (derivedMode) {
+            updates.selectedMode = derivedMode
+          }
+          if (derivedModel) {
+            updates.selectedModel = derivedModel
+          }
 
           update(id, updates)
         })

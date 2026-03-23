@@ -108,7 +108,9 @@ export const isWebDesktopPlatform = (): boolean => {
  * Local agents require Tauri desktop; built-in and remote agents work everywhere.
  */
 export const isAgentAvailableOnPlatform = (agentType: string): boolean => {
-  if (agentType === 'local') return isTauri() && isDesktop()
+  if (agentType === 'local') {
+    return isTauri() && isDesktop()
+  }
   return true
 }
 
