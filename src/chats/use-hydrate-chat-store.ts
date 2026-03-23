@@ -24,8 +24,8 @@ import type { Agent, Mode, Model, SaveMessagesFunction, ThunderboltUIMessage } f
 import type { AgentSessionState } from '@/acp/types'
 import { useState } from 'react'
 import { useNavigate } from 'react-router'
-import { useChatStore } from './chat-store'
-import { createAcpSession } from './create-acp-session'
+import { useChatStore, type ChatSession } from './chat-store'
+import { createAcpSession, ensureAcpConnection } from './create-acp-session'
 
 /**
  * Derive a Mode object from ACP session state for non-built-in agents.
@@ -232,8 +232,9 @@ export const useHydrateChatStore = ({ id, isNew }: UseHydrateChatStoreParams) =>
     const agentAvailable = isAgentAvailableOnPlatform(agentForSession.type)
     const isBuiltIn = agentForSession.type === 'built-in'
 
-    // Only eagerly connect for built-in agents (instant, in-process).
-    // Local/remote agents connect lazily on first message send.
+    // Built-in agents connect eagerly during hydration (instant, in-process).
+    // Non-built-in agents create the session with null acpClient, then
+    // connect eagerly in the background after the session is created.
     let acpClient: import('@/acp/client').AcpClient | null = null
     let sessionState: AgentSessionState = { sessionId: '', availableModes: [], currentModeId: null, configOptions: [] }
 
@@ -288,6 +289,36 @@ export const useHydrateChatStore = ({ id, isNew }: UseHydrateChatStoreParams) =>
     setAgents(filterAgentsByPlatform(agents))
 
     setIsReady(true)
+
+    // Non-built-in agents that are available on this platform:
+    // start connecting eagerly so mode/model selectors populate ASAP.
+    if (!isBuiltIn && agentAvailable) {
+      ensureAcpConnection(id)
+        .then(() => {
+          const { sessions, updateSession: update } = useChatStore.getState()
+          const s = sessions.get(id)
+          if (!s) return
+
+          const acpSessionState: AgentSessionState = {
+            sessionId: id,
+            availableModes: s.availableModes,
+            currentModeId: s.currentModeId,
+            configOptions: s.configOptions,
+          }
+          const derivedMode = modeFromAcpSession(acpSessionState)
+          const derivedModel = modelFromAcpSession(acpSessionState)
+
+          const updates: Partial<ChatSession> = { status: 'ready' as const }
+          if (derivedMode) updates.selectedMode = derivedMode
+          if (derivedModel) updates.selectedModel = derivedModel
+
+          update(id, updates)
+        })
+        .catch((err) => {
+          console.error(`Eager ACP connection failed for session ${id}:`, err)
+          useChatStore.getState().setSessionStatus(id, 'error', err instanceof Error ? err : new Error(String(err)))
+        })
+    }
   }
 
   return { hydrateChatStore, isReady, saveMessages }

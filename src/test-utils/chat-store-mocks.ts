@@ -1,6 +1,7 @@
 import { useChatStore, type ChatSession, type ChatStatus } from '@/chats/chat-store'
 import type { AcpClient } from '@/acp/client'
 import type { Agent, AutomationRun, ChatThread, Mode, Model, ThunderboltUIMessage } from '@/types'
+import type { SessionConfigOption, SessionMode } from '@agentclientprotocol/sdk'
 import { mock } from 'bun:test'
 
 /**
@@ -94,7 +95,7 @@ const defaultTestMode: Mode = {
 /**
  * Default agent used when selectedAgent is not specified
  */
-const defaultTestAgent: Agent = {
+export const defaultTestAgent: Agent = {
   id: 'default-agent',
   name: 'Test Agent',
   type: 'built-in',
@@ -125,10 +126,57 @@ const defaultTestModel: Model = {
 } as Model
 
 /**
+ * Creates a mock local agent (e.g. Claude Code) for testing
+ */
+export const createMockLocalAgent = (overrides?: Partial<Agent>): Agent => ({
+  id: 'local-agent',
+  name: 'Claude Code',
+  type: 'local',
+  transport: 'stdio',
+  command: 'claude',
+  args: null,
+  url: null,
+  authMethod: null,
+  icon: 'terminal',
+  isSystem: 1,
+  enabled: 1,
+  deletedAt: null,
+  defaultHash: null,
+  userId: null,
+  ...overrides,
+})
+
+/**
+ * Creates a mock remote agent for testing
+ */
+export const createMockRemoteAgent = (overrides?: Partial<Agent>): Agent => ({
+  id: 'remote-agent',
+  name: 'Remote Agent',
+  type: 'remote',
+  transport: 'websocket',
+  command: null,
+  args: null,
+  url: 'wss://example.com/agent',
+  authMethod: null,
+  icon: 'globe',
+  isSystem: 0,
+  enabled: 1,
+  deletedAt: null,
+  defaultHash: null,
+  userId: null,
+  ...overrides,
+})
+
+/**
  * Hydrates the store with a session for testing
  */
 export const hydrateStore = (state: {
   acpClient?: AcpClient | null
+  agentConfig?: Agent
+  isAgentAvailable?: boolean
+  availableModes?: SessionMode[]
+  currentModeId?: string | null
+  configOptions?: SessionConfigOption[]
   chatThread: ChatThread | null
   id: string
   messages?: ThunderboltUIMessage[]
@@ -154,12 +202,12 @@ export const hydrateStore = (state: {
       id: state.id,
       chatThread: state.chatThread,
       acpClient,
-      agentConfig: defaultTestAgent,
-      isAgentAvailable: true,
+      agentConfig: state.agentConfig ?? defaultTestAgent,
+      isAgentAvailable: state.isAgentAvailable ?? true,
 
-      availableModes: [],
-      currentModeId: null,
-      configOptions: [],
+      availableModes: state.availableModes ?? [],
+      currentModeId: state.currentModeId ?? null,
+      configOptions: state.configOptions ?? [],
 
       messages: state.messages ?? [],
       status: state.status ?? 'ready',

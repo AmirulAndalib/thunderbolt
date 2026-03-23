@@ -204,7 +204,14 @@ export const ChatPromptInput = forwardRef<ChatPromptInputRef, ChatPromptInputPro
 
     const footerStartElements = (
       <div className="flex items-center gap-2">
-        {modes.length > 0 && <ModeSelector modes={modes} selectedMode={selectedMode} onModeChange={handleModeChange} />}
+        {isConnecting && modes.length === 0 ? (
+          <div className="flex items-center gap-2 px-3 h-[var(--touch-height-sm)] text-muted-foreground text-[length:var(--font-size-body)]">
+            <Loader2 className="size-[var(--icon-size-default)] shrink-0 animate-spin" />
+            <span>Connecting to {agentConfig.name}...</span>
+          </div>
+        ) : (
+          modes.length > 0 && <ModeSelector modes={modes} selectedMode={selectedMode} onModeChange={handleModeChange} />
+        )}
         {isContextKnown && !isMobile && (
           <ContextUsageIndicator usedTokens={usedTokens ?? 0} maxTokens={maxTokens ?? 0} />
         )}
@@ -224,12 +231,6 @@ export const ChatPromptInput = forwardRef<ChatPromptInputRef, ChatPromptInputPro
 
     return (
       <>
-        {isConnecting && (
-          <div className="flex items-center justify-center gap-2 px-3 py-1.5 text-muted-foreground text-[length:var(--font-size-sm)]">
-            <Loader2 className="size-3.5 animate-spin" />
-            <span>Connecting to {agentConfig.name}...</span>
-          </div>
-        )}
         <PromptInput
           ref={formRef}
           value={input}
