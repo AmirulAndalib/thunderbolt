@@ -29,14 +29,15 @@ import { useChatStore, type ChatSession } from './chat-store'
 import { createAcpSession, ensureAcpConnection } from './create-acp-session'
 
 /**
- * Filter out local agents on non-desktop platforms.
- * Local agents synced via PowerSync from desktop should not appear on web/mobile.
+ * Compute which agents are unavailable on the current platform.
+ * On web/mobile, local agents can't run but should still appear (disabled) in the UI
+ * so the agent selector can indicate which agent a chat belongs to.
  */
-const filterAgentsByPlatform = (agents: Agent[]): Agent[] => {
+const getUnavailableAgentIds = (agents: Agent[]): Set<string> => {
   if (isTauri() && isDesktop()) {
-    return agents
+    return new Set()
   }
-  return agents.filter((a) => a.type !== 'local')
+  return new Set(agents.filter((a) => !isAgentAvailableOnPlatform(a.type)).map((a) => a.id))
 }
 
 type UseHydrateChatStoreParams = {
@@ -113,7 +114,7 @@ export const useHydrateChatStore = ({ id, isNew }: UseHydrateChatStoreParams) =>
       const [allAgents, mcpClients] = await Promise.all([getAvailableAgents(db), getEnabledClients()])
 
       setMcpClients(mcpClients)
-      setAgents(filterAgentsByPlatform(allAgents))
+      setAgents(allAgents, getUnavailableAgentIds(allAgents))
 
       setIsReady(true)
 
@@ -223,7 +224,7 @@ export const useHydrateChatStore = ({ id, isNew }: UseHydrateChatStoreParams) =>
     setCurrentSessionId(id)
 
     setMcpClients(mcpClients)
-    setAgents(filterAgentsByPlatform(agents))
+    setAgents(agents, getUnavailableAgentIds(agents))
 
     setIsReady(true)
 

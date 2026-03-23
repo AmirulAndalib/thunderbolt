@@ -238,6 +238,7 @@ export const resetStore = () => {
   useChatStore.setState({
     currentSessionId: null,
     agents: [],
+    unavailableAgentIds: new Set<string>(),
     mcpClients: [],
     sessions: new Map(),
   })

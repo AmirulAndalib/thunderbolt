@@ -17,12 +17,13 @@ export const Header = () => {
   const navigate = useNavigate()
   const location = useLocation()
 
-  const { agents, selectedAgent, setSelectedAgent, chatThreadId } = useChatStore(
+  const { agents, unavailableAgentIds, selectedAgent, setSelectedAgent, chatThreadId } = useChatStore(
     useShallow((state) => {
       const session = state.sessions.get(state.currentSessionId ?? '')
 
       return {
         agents: state.agents,
+        unavailableAgentIds: state.unavailableAgentIds,
         selectedAgent: session?.agentConfig,
         setSelectedAgent: state.setSelectedAgent,
         chatThreadId: session?.id,
@@ -51,7 +52,12 @@ export const Header = () => {
   }
 
   const agentSelector = showAgentSelector && (
-    <AgentSelector agents={agents} selectedAgent={selectedAgent ?? null} onAgentChange={handleAgentChange} />
+    <AgentSelector
+      agents={agents}
+      disabledAgentIds={unavailableAgentIds}
+      selectedAgent={selectedAgent ?? null}
+      onAgentChange={handleAgentChange}
+    />
   )
 
   // Mobile: 3-column layout with centered model selector

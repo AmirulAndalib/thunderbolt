@@ -39,13 +39,14 @@ export type ChatSession = {
 type ChatStoreState = {
   currentSessionId: string | null
   agents: Agent[]
+  unavailableAgentIds: Set<string>
   mcpClients: MCPClient[]
   sessions: Map<string, ChatSession>
 }
 
 type ChatStoreActions = {
   createSession(session: ChatSession): void
-  setAgents(agents: Agent[]): void
+  setAgents(agents: Agent[], unavailableAgentIds?: Set<string>): void
   setCurrentSessionId(id: string): void
   setMcpClients(mcpClients: MCPClient[]): void
   setSelectedAgent(id: string, agentId: string | null): Promise<void>
@@ -62,6 +63,7 @@ type ChatStore = ChatStoreState & ChatStoreActions
 const initialState: ChatStoreState = {
   currentSessionId: null,
   agents: [],
+  unavailableAgentIds: new Set<string>(),
   mcpClients: [],
   sessions: new Map(),
 }
@@ -82,8 +84,8 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
     set({ sessions: nextSessions })
   },
 
-  setAgents: (agents) => {
-    set({ agents })
+  setAgents: (agents, unavailableAgentIds = new Set()) => {
+    set({ agents, unavailableAgentIds })
   },
 
   setCurrentSessionId: (id) => {
@@ -234,6 +236,11 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
     set({ sessions: nextSessions })
   },
 }))
+
+// Expose store on window in dev mode for e2e test access
+if (import.meta.env.DEV) {
+  ;(window as unknown as Record<string, unknown>).__thunderboltChatStore = useChatStore
+}
 
 /**
  * Returns the current chat session, throwing if none exists.

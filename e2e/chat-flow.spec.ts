@@ -192,9 +192,11 @@ test.describe('Chat Navigation', () => {
   test('new chat button creates fresh chat with working UI', async ({ page }) => {
     await goToNewChat(page)
 
-    // Type something to dirty the chat
+    // Submit a message so the URL changes from /chats/new to /chats/<id>
     const textarea = page.locator('textarea')
     await textarea.fill('Some text')
+    await page.locator('form button[type="submit"]').click()
+    await page.waitForURL(/\/chats\/(?!new)/, { timeout: 10000 })
 
     // Click New Chat in sidebar
     await page.getByText('New Chat').click()

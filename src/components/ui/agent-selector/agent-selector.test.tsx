@@ -91,4 +91,64 @@ describe('categorizeAgents', () => {
     expect(builtInItem.description).toBe('Built-in')
     expect(builtInItem.disabled).toBe(false)
   })
+
+  test('marks agents as disabled when in disabledAgentIds', () => {
+    const disabledIds = new Set(['agent-claude-code', 'agent-haystack'])
+    const groups = categorizeAgents(testAgents, disabledIds)
+
+    // Built-in should NOT be disabled
+    const builtInItem = groups[0].items[0]
+    expect(builtInItem.disabled).toBe(false)
+
+    // Local agent should be disabled
+    const localItem = groups[1].items[0]
+    expect(localItem.disabled).toBe(true)
+
+    // Remote agent should be disabled
+    const remoteItem = groups[2].items[0]
+    expect(remoteItem.disabled).toBe(true)
+  })
+
+  test('does not disable agents when disabledAgentIds is empty', () => {
+    const groups = categorizeAgents(testAgents, new Set())
+
+    for (const group of groups) {
+      for (const item of group.items) {
+        expect(item.disabled).toBe(false)
+      }
+    }
+  })
+
+  test('does not disable agents when disabledAgentIds is undefined', () => {
+    const groups = categorizeAgents(testAgents, undefined)
+
+    for (const group of groups) {
+      for (const item of group.items) {
+        expect(item.disabled).toBe(false)
+      }
+    }
+  })
+
+  test('disabled agents show "Unavailable" in description', () => {
+    const disabledIds = new Set(['agent-claude-code'])
+    const groups = categorizeAgents(testAgents, disabledIds)
+
+    const localItem = groups[1].items[0]
+    expect(localItem.description).toBe('Unavailable')
+
+    // Non-disabled agents keep their normal description
+    const builtInItem = groups[0].items[0]
+    expect(builtInItem.description).toBe('Built-in')
+  })
+
+  test('still groups disabled agents correctly by type', () => {
+    const disabledIds = new Set(['agent-claude-code'])
+    const groups = categorizeAgents(testAgents, disabledIds)
+
+    expect(groups).toHaveLength(3)
+    expect(groups[1].id).toBe('local')
+    expect(groups[1].label).toBe('Local Agents')
+    expect(groups[1].items).toHaveLength(1)
+    expect(groups[1].items[0].id).toBe('agent-claude-code')
+  })
 })

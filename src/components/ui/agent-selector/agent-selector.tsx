@@ -7,6 +7,7 @@ import { useCallback, useMemo } from 'react'
 
 export type AgentSelectorProps = {
   agents: Agent[]
+  disabledAgentIds?: Set<string>
   selectedAgent: Agent | null
   onAgentChange: (agentId: string) => void
   side?: 'top' | 'bottom' | 'left' | 'right'
@@ -29,22 +30,39 @@ const getAgentIcon = (iconName: string | null) => {
   return <Icon className="size-3.5 text-muted-foreground" />
 }
 
+const getDescription = (agent: Agent, isDisabled: boolean): string => {
+  if (isDisabled) {
+    return 'Unavailable'
+  }
+  if (agent.type === 'built-in') {
+    return 'Built-in'
+  }
+  if (agent.type === 'local') {
+    return 'Local'
+  }
+  return 'Remote'
+}
+
 const toMenuItem = (agent: Agent, isDisabled: boolean): SearchableMenuItem<AgentItemData> => ({
   id: agent.id,
   label: agent.name,
-  description: agent.type === 'built-in' ? 'Built-in' : agent.type === 'local' ? 'Local' : 'Remote',
+  description: getDescription(agent, isDisabled),
   icon: getAgentIcon(agent.icon),
   disabled: isDisabled,
   data: { agent },
 })
 
-export const categorizeAgents = (agents: Agent[]): SearchableMenuGroup<AgentItemData>[] => {
+export const categorizeAgents = (
+  agents: Agent[],
+  disabledAgentIds?: Set<string>,
+): SearchableMenuGroup<AgentItemData>[] => {
   const builtIn: SearchableMenuItem<AgentItemData>[] = []
   const local: SearchableMenuItem<AgentItemData>[] = []
   const remote: SearchableMenuItem<AgentItemData>[] = []
 
   for (const agent of agents) {
-    const item = toMenuItem(agent, false)
+    const isDisabled = disabledAgentIds?.has(agent.id) ?? false
+    const item = toMenuItem(agent, isDisabled)
 
     switch (agent.type) {
       case 'built-in':
@@ -74,8 +92,15 @@ export const categorizeAgents = (agents: Agent[]): SearchableMenuGroup<AgentItem
   return groups
 }
 
-export const AgentSelector = ({ agents, selectedAgent, onAgentChange, side, align }: AgentSelectorProps) => {
-  const groupedItems = useMemo(() => categorizeAgents(agents), [agents])
+export const AgentSelector = ({
+  agents,
+  disabledAgentIds,
+  selectedAgent,
+  onAgentChange,
+  side,
+  align,
+}: AgentSelectorProps) => {
+  const groupedItems = useMemo(() => categorizeAgents(agents, disabledAgentIds), [agents, disabledAgentIds])
 
   const renderTrigger = (selected: SearchableMenuItem<AgentItemData> | undefined, isOpen: boolean) => (
     <div

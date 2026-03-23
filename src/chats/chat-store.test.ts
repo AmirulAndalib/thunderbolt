@@ -208,4 +208,112 @@ describe('chat-store', () => {
       )
     })
   })
+
+  describe('unavailableAgentIds', () => {
+    it('should initialize with empty unavailableAgentIds', () => {
+      const state = useChatStore.getState()
+      expect(state.unavailableAgentIds).toBeInstanceOf(Set)
+      expect(state.unavailableAgentIds.size).toBe(0)
+    })
+
+    it('should store unavailableAgentIds when setAgents is called with them', () => {
+      const agents = [
+        {
+          id: 'agent-1',
+          name: 'Agent 1',
+          type: 'built-in' as const,
+          transport: 'in-process' as const,
+          enabled: 1,
+          command: null,
+          args: null,
+          url: null,
+          authMethod: null,
+          icon: 'zap',
+          isSystem: 1,
+          deletedAt: null,
+          defaultHash: null,
+          userId: null,
+        },
+        {
+          id: 'agent-2',
+          name: 'Agent 2',
+          type: 'local' as const,
+          transport: 'stdio' as const,
+          enabled: 1,
+          command: 'test',
+          args: null,
+          url: null,
+          authMethod: null,
+          icon: 'terminal',
+          isSystem: 1,
+          deletedAt: null,
+          defaultHash: null,
+          userId: null,
+        },
+      ]
+      const unavailableIds = new Set(['agent-2'])
+
+      useChatStore.getState().setAgents(agents, unavailableIds)
+
+      const state = useChatStore.getState()
+      expect(state.agents).toEqual(agents)
+      expect(state.unavailableAgentIds).toBe(unavailableIds)
+      expect(state.unavailableAgentIds.has('agent-2')).toBe(true)
+      expect(state.unavailableAgentIds.has('agent-1')).toBe(false)
+    })
+
+    it('should default to empty set when setAgents is called without unavailableAgentIds', () => {
+      const agents = [
+        {
+          id: 'agent-1',
+          name: 'Agent 1',
+          type: 'built-in' as const,
+          transport: 'in-process' as const,
+          enabled: 1,
+          command: null,
+          args: null,
+          url: null,
+          authMethod: null,
+          icon: 'zap',
+          isSystem: 1,
+          deletedAt: null,
+          defaultHash: null,
+          userId: null,
+        },
+      ]
+
+      useChatStore.getState().setAgents(agents)
+
+      const state = useChatStore.getState()
+      expect(state.unavailableAgentIds).toBeInstanceOf(Set)
+      expect(state.unavailableAgentIds.size).toBe(0)
+    })
+
+    it('should reset unavailableAgentIds when store is reset', () => {
+      const agents = [
+        {
+          id: 'agent-1',
+          name: 'Agent 1',
+          type: 'built-in' as const,
+          transport: 'in-process' as const,
+          enabled: 1,
+          command: null,
+          args: null,
+          url: null,
+          authMethod: null,
+          icon: 'zap',
+          isSystem: 1,
+          deletedAt: null,
+          defaultHash: null,
+          userId: null,
+        },
+      ]
+      useChatStore.getState().setAgents(agents, new Set(['agent-1']))
+
+      resetStore()
+
+      const state = useChatStore.getState()
+      expect(state.unavailableAgentIds.size).toBe(0)
+    })
+  })
 })
