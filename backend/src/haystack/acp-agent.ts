@@ -12,7 +12,7 @@ import type {
   PromptResponse,
 } from '@agentclientprotocol/sdk'
 import type { HaystackClient } from './client'
-import type { HaystackPipelineConfig } from './types'
+import type { HaystackDocumentMeta, HaystackPipelineConfig, HaystackReferenceMeta } from './types'
 import { parseSSE, extractReferences, extractDocuments } from './sse-parser'
 
 type HaystackAcpAgentDeps = {
@@ -80,51 +80,11 @@ export const createHaystackAcpAgent = ({ client, pipelineConfig }: HaystackAcpAg
         .join('\n')
 
       try {
-        const sseResponse = await client.chatStream({ query: text, sessionId: session.haystackSessionId }, ac.signal)
-
-        if (!sseResponse.body) {
-          throw new Error('Haystack streaming response has no body')
-        }
-
-        let references: ReturnType<typeof extractReferences> = []
-        let documents: ReturnType<typeof extractDocuments> = []
-
-        for await (const event of parseSSE(sseResponse.body)) {
-          if (ac.signal.aborted) {
-            break
-          }
-
-          if (event.type === 'delta') {
-            await conn.sessionUpdate({
-              sessionId: params.sessionId,
-              update: {
-                sessionUpdate: 'agent_message_chunk',
-                content: { type: 'text', text: event.delta },
-              },
-            })
-          }
-
-          if (event.type === 'result') {
-            references = extractReferences(event.result)
-            documents = extractDocuments(event.result)
-
-            // Send references immediately via _meta so frontend can render citations during streaming
-            if (references.length > 0) {
-              await conn.sessionUpdate({
-                sessionId: params.sessionId,
-                update: {
-                  sessionUpdate: 'agent_message_chunk',
-                  content: { type: 'text', text: '' },
-                  _meta: { haystackReferences: references },
-                },
-              })
-            }
-          }
-
-          if (event.type === 'error') {
-            throw new Error(event.error)
-          }
-        }
+        const outputType = await client.getOutputType()
+        const { references, documents } =
+          outputType === 'DOCUMENT'
+            ? await handleDocumentSearch(conn, params.sessionId, client, text, ac)
+            : await handleChatStream(conn, params.sessionId, client, session.haystackSessionId, text, ac)
 
         session.abortController = null
 
@@ -157,4 +117,106 @@ export const createHaystackAcpAgent = ({ client, pipelineConfig }: HaystackAcpAg
   })
 
   return { handler: agent, dispose }
+}
+
+type PromptResult = { references: HaystackReferenceMeta[]; documents: HaystackDocumentMeta[] }
+
+/** Handle CHAT-type pipelines via streaming chat-stream endpoint. */
+const handleChatStream = async (
+  conn: AgentSideConnection,
+  sessionId: string,
+  client: HaystackClient,
+  haystackSessionId: string,
+  query: string,
+  ac: AbortController,
+): Promise<PromptResult> => {
+  const sseResponse = await client.chatStream({ query, sessionId: haystackSessionId }, ac.signal)
+  if (!sseResponse.body) {
+    throw new Error('Haystack streaming response has no body')
+  }
+
+  let references: HaystackReferenceMeta[] = []
+  let documents: HaystackDocumentMeta[] = []
+
+  for await (const event of parseSSE(sseResponse.body)) {
+    if (ac.signal.aborted) {
+      break
+    }
+
+    if (event.type === 'delta') {
+      await conn.sessionUpdate({
+        sessionId,
+        update: {
+          sessionUpdate: 'agent_message_chunk',
+          content: { type: 'text', text: event.delta },
+        },
+      })
+    }
+
+    if (event.type === 'result') {
+      references = extractReferences(event.result)
+      documents = extractDocuments(event.result)
+
+      if (references.length > 0) {
+        await conn.sessionUpdate({
+          sessionId,
+          update: {
+            sessionUpdate: 'agent_message_chunk',
+            content: { type: 'text', text: '' },
+            _meta: { haystackReferences: references },
+          },
+        })
+      }
+    }
+
+    if (event.type === 'error') {
+      throw new Error(event.error)
+    }
+  }
+
+  return { references, documents }
+}
+
+/** Handle DOCUMENT-type pipelines via the /search endpoint. */
+const handleDocumentSearch = async (
+  conn: AgentSideConnection,
+  sessionId: string,
+  client: HaystackClient,
+  query: string,
+  ac: AbortController,
+): Promise<PromptResult> => {
+  const result = await client.search(query, ac.signal)
+  const documents = extractDocuments(result)
+
+  if (ac.signal.aborted || documents.length === 0) {
+    return { references: [], documents }
+  }
+
+  const references: HaystackReferenceMeta[] = documents.map((d, i) => ({
+    position: i + 1,
+    fileId: d.file.id,
+    fileName: d.file.name,
+  }))
+
+  await conn.sessionUpdate({
+    sessionId,
+    update: {
+      sessionUpdate: 'agent_message_chunk',
+      content: { type: 'text', text: formatDocumentResults(documents) },
+      _meta: { haystackReferences: references },
+    },
+  })
+
+  return { references, documents }
+}
+
+/** Format document search results as markdown with [N] citation markers. */
+export const formatDocumentResults = (documents: HaystackDocumentMeta[]): string => {
+  const items = documents.map((doc, i) => {
+    const normalized = doc.content.replace(/\s+/g, ' ').trim()
+    const snippet = normalized.slice(0, 300)
+    const ellipsis = normalized.length > 300 ? '...' : ''
+    return `[${i + 1}] **${doc.file.name}**\n> ${snippet}${ellipsis}`
+  })
+  return `Found ${documents.length} relevant documents:\n\n${items.join('\n\n')}`
 }

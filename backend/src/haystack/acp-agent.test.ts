@@ -1,9 +1,9 @@
 import { describe, expect, it, mock } from 'bun:test'
 import { AgentSideConnection, ClientSideConnection, ndJsonStream } from '@agentclientprotocol/sdk'
 import type { Client, Agent, SessionNotification } from '@agentclientprotocol/sdk'
-import { createHaystackAcpAgent } from './acp-agent'
+import { createHaystackAcpAgent, formatDocumentResults } from './acp-agent'
 import { HaystackClient } from './client'
-import type { HaystackPipelineConfig, DeepsetResultPayload } from './types'
+import type { HaystackDocumentMeta, HaystackPipelineConfig, DeepsetResultPayload } from './types'
 
 const testPipelineConfig: HaystackPipelineConfig = {
   slug: 'test-pipeline',
@@ -235,5 +235,192 @@ describe('createHaystackAcpAgent', () => {
 
     expect(result.stopReason).toBe('end_turn')
     expect((result._meta as Record<string, unknown>).haystackDocuments).toEqual([])
+  })
+
+  it('should use search endpoint for DOCUMENT-type pipelines', async () => {
+    const searchResult = {
+      results: [
+        {
+          answers: [],
+          documents: [
+            {
+              id: 'd1',
+              content: 'EU regulation content',
+              score: 0.95,
+              file: { id: 'f1', name: 'regulation.pdf' },
+              meta: { page_number: 1 },
+            },
+            {
+              id: 'd2',
+              content: 'Another document',
+              score: 0.7,
+              file: { id: 'f2', name: 'guide.pdf' },
+              meta: {},
+            },
+          ],
+        },
+      ],
+    }
+
+    let callCount = 0
+    const mockFetch = mock(() => {
+      callCount++
+      if (callCount === 1) {
+        // createSession
+        return Promise.resolve(new Response(JSON.stringify({ search_session_id: 's1' }), { status: 201 }))
+      }
+      if (callCount === 2) {
+        // getOutputType
+        return Promise.resolve(new Response(JSON.stringify({ output_type: 'DOCUMENT' }), { status: 200 }))
+      }
+      // search
+      return Promise.resolve(new Response(JSON.stringify(searchResult), { status: 200 }))
+    })
+
+    const client = new HaystackClient(testHaystackConfig, mockFetch as unknown as typeof fetch)
+    const { clientStream, agentStream } = createInProcessStreams()
+
+    const { handler: agentHandler } = createHaystackAcpAgent({ client, pipelineConfig: testPipelineConfig })
+    new AgentSideConnection(agentHandler, agentStream)
+
+    const updates: SessionNotification[] = []
+    const clientHandler: (agent: Agent) => Client = () => ({
+      sessionUpdate: async (params: SessionNotification) => {
+        updates.push(params)
+      },
+      requestPermission: async () => ({ outcome: { outcome: 'cancelled' as const } }),
+    })
+    const conn = new ClientSideConnection(clientHandler, clientStream)
+
+    await conn.initialize({
+      clientInfo: { name: 'Test', version: '1.0.0' },
+      protocolVersion: 1,
+      clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
+    })
+
+    const session = await conn.newSession({ cwd: '.', mcpServers: [] })
+    const result = await conn.prompt({
+      sessionId: session.sessionId,
+      prompt: [{ type: 'text', text: 'Find EU regulations' }],
+    })
+
+    expect(result.stopReason).toBe('end_turn')
+
+    const meta = result._meta as Record<string, unknown>
+    expect((meta.haystackDocuments as unknown[]).length).toBe(2)
+    expect((meta.haystackReferences as unknown[]).length).toBe(2)
+
+    // Should have sent formatted document results as session update
+    const textUpdates = updates.filter((u) => {
+      const update = u.update as { content?: { type: string; text: string } }
+      return update.content?.type === 'text' && update.content.text.length > 0
+    })
+    expect(textUpdates.length).toBeGreaterThanOrEqual(1)
+
+    const text = (textUpdates[0].update as { content: { text: string } }).content.text
+    expect(text).toContain('Found 2 relevant documents')
+    expect(text).toContain('[1] **regulation.pdf**')
+    expect(text).toContain('[2] **guide.pdf**')
+
+    // Should have sent _meta with references
+    const metaUpdate = updates.find((u) => {
+      const update = u.update as { _meta?: Record<string, unknown> }
+      return update._meta?.haystackReferences
+    })
+    expect(metaUpdate).toBeTruthy()
+
+    // search endpoint should have been called (not chatStream)
+    const searchCall = mockFetch.mock.calls.find((call) => {
+      const [url] = call as unknown as [string]
+      return url.includes('/search')
+    })
+    expect(searchCall).toBeTruthy()
+
+    const chatStreamCall = mockFetch.mock.calls.find((call) => {
+      const [url] = call as unknown as [string]
+      return url.includes('/chat-stream')
+    })
+    expect(chatStreamCall).toBeUndefined()
+  })
+})
+
+const makeDoc = (overrides: Partial<HaystackDocumentMeta> & { name?: string } = {}): HaystackDocumentMeta => ({
+  id: overrides.id ?? 'd1',
+  content: overrides.content ?? 'Default document content for testing purposes.',
+  score: overrides.score ?? 0.9,
+  file: { id: 'f1', name: overrides.name ?? 'report.pdf' },
+})
+
+describe('formatDocumentResults', () => {
+  it('should format a single document with citation marker', () => {
+    const result = formatDocumentResults([makeDoc()])
+
+    expect(result).toContain('Found 1 relevant documents:')
+    expect(result).toContain('[1] **report.pdf**')
+    expect(result).toContain('> Default document content for testing purposes.')
+  })
+
+  it('should format multiple documents with sequential markers', () => {
+    const docs = [
+      makeDoc({ name: 'a.pdf', content: 'First doc' }),
+      makeDoc({ id: 'd2', name: 'b.pdf', content: 'Second doc' }),
+      makeDoc({ id: 'd3', name: 'c.pdf', content: 'Third doc' }),
+    ]
+    const result = formatDocumentResults(docs)
+
+    expect(result).toContain('Found 3 relevant documents:')
+    expect(result).toContain('[1] **a.pdf**')
+    expect(result).toContain('[2] **b.pdf**')
+    expect(result).toContain('[3] **c.pdf**')
+  })
+
+  it('should truncate long content at 300 chars with ellipsis', () => {
+    const longContent = 'A'.repeat(400)
+    const result = formatDocumentResults([makeDoc({ content: longContent })])
+
+    expect(result).toContain('A'.repeat(300) + '...')
+    expect(result).not.toContain('A'.repeat(301))
+  })
+
+  it('should not add ellipsis when content is exactly 300 chars', () => {
+    const exactContent = 'B'.repeat(300)
+    const result = formatDocumentResults([makeDoc({ content: exactContent })])
+
+    expect(result).toContain('B'.repeat(300))
+    expect(result).not.toContain('...')
+  })
+
+  it('should not add ellipsis for short content', () => {
+    const result = formatDocumentResults([makeDoc({ content: 'Short.' })])
+
+    expect(result).toContain('> Short.')
+    expect(result).not.toContain('...')
+  })
+
+  it('should normalize whitespace in content', () => {
+    const content = 'Line one\n\nLine two\t\ttabbed   spaced'
+    const result = formatDocumentResults([makeDoc({ content })])
+
+    expect(result).toContain('> Line one Line two tabbed spaced')
+  })
+
+  it('should handle content that is long before normalization but short after', () => {
+    // 400 chars of whitespace-heavy content that collapses to < 300
+    const content = Array.from({ length: 50 }, () => 'word').join('     ')
+    const normalized = content.replace(/\s+/g, ' ').trim()
+
+    const result = formatDocumentResults([makeDoc({ content })])
+
+    if (normalized.length <= 300) {
+      expect(result).not.toContain('...')
+    } else {
+      expect(result).toContain('...')
+    }
+  })
+
+  it('should return header for empty array', () => {
+    const result = formatDocumentResults([])
+
+    expect(result).toContain('Found 0 relevant documents:')
   })
 })

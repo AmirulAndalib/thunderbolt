@@ -163,7 +163,9 @@ export const TextPart = memo(({ part, messageId, sources, haystackReferences }: 
       let keyOffset = 0
       const mergedCitations: CitationMap = new Map()
       const mapped: ContentPart[] = parts.map((p) => {
-        if (p.type !== 'text') return p
+        if (p.type !== 'text') {
+          return p
+        }
         const { fullText, citations } = buildPlaceholders(p.content, keyOffset)
         for (const [key, value] of citations) {
           mergedCitations.set(key, value)

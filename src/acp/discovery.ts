@@ -12,7 +12,9 @@ import type { RemoteAgentDescriptor } from '@shared/agent-types'
  * Compares by hash to avoid unnecessary writes.
  */
 const upsertAgents = async (db: AnyDrizzleDatabase, agents: Agent[]): Promise<void> => {
-  if (agents.length === 0) return
+  if (agents.length === 0) {
+    return
+  }
 
   const existingRows = await db
     .select()
@@ -66,7 +68,9 @@ export const discoverAndSeedLocalAgents = async (db: AnyDrizzleDatabase): Promis
 const fetchRemoteAgentDescriptors = async (cloudUrl: string): Promise<RemoteAgentDescriptor[]> => {
   try {
     const response = await fetch(`${cloudUrl}/agents`)
-    if (!response.ok) return []
+    if (!response.ok) {
+      return []
+    }
     const data = (await response.json()) as { data?: RemoteAgentDescriptor[] }
     return data.data ?? []
   } catch {
@@ -76,7 +80,9 @@ const fetchRemoteAgentDescriptors = async (cloudUrl: string): Promise<RemoteAgen
 
 export const discoverAndSeedRemoteAgents = async (db: AnyDrizzleDatabase, cloudUrl: string): Promise<Agent[]> => {
   const descriptors = await fetchRemoteAgentDescriptors(cloudUrl)
-  if (descriptors.length === 0) return []
+  if (descriptors.length === 0) {
+    return []
+  }
 
   const agents: Agent[] = descriptors.map((d) => ({
     ...d,

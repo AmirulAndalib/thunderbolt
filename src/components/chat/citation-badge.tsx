@@ -3,14 +3,11 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { useIsMobile } from '@/hooks/use-mobile'
 import { useSettings } from '@/hooks/use-settings'
-import type { CitationSource, DocumentCitationSource } from '@/types/citation'
-import { buildDocumentSideviewId } from '@/types/citation'
+import type { CitationSource } from '@/types/citation'
+import { buildDocumentSideviewId, isDocumentCitation } from '@/types/citation'
 import { memo, useState } from 'react'
 import { useCitationPopover } from './citation-popover'
 import { SourceList } from './source-list'
-
-const isDocumentCitation = (source: CitationSource): source is DocumentCitationSource =>
-  'documentMeta' in source && !!(source as DocumentCitationSource).documentMeta
 
 type CitationBadgeProps = {
   sources: CitationSource[]
@@ -129,7 +126,7 @@ const StandaloneBadge = memo(({ sources }: { sources: CitationSource[] }) => {
       <Popover open={isOpen} onOpenChange={setIsOpen}>
         <PopoverTrigger asChild>{badge}</PopoverTrigger>
         <PopoverContent align="start" side="bottom" className="w-[420px] overflow-hidden rounded-2xl p-0">
-          <SourceList sources={sources} proxyBase={cloudUrl.value} />
+          <SourceList sources={sources} proxyBase={cloudUrl.value} onSelect={() => setIsOpen(false)} />
         </PopoverContent>
       </Popover>
     )
@@ -148,7 +145,7 @@ const StandaloneBadge = memo(({ sources }: { sources: CitationSource[] }) => {
           <SheetHeader className="sr-only">
             <SheetTitle>{sources.length === 1 ? 'Source' : 'Sources'}</SheetTitle>
           </SheetHeader>
-          <SourceList sources={sources} proxyBase={cloudUrl.value} />
+          <SourceList sources={sources} proxyBase={cloudUrl.value} onSelect={() => setIsOpen(false)} />
         </SheetContent>
       </Sheet>
     </>

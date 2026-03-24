@@ -27,6 +27,10 @@ export type DocumentCitationSource = CitationSource & {
   }
 }
 
+/** Type guard for document-backed citations (Haystack documents vs web URLs). */
+export const isDocumentCitation = (source: CitationSource): source is DocumentCitationSource =>
+  'documentMeta' in source && !!(source as DocumentCitationSource).documentMeta
+
 /**
  * Map of citation placeholder indices to their decoded sources.
  * Used to replace {{CITE:N}} placeholders with inline CitationBadge components.
