@@ -20,6 +20,9 @@ const settingsSchema = z.object({
   haystackPipelineId: z.string().default(''),
   haystackPipelines: z.string().default(''),
 
+  // Agent filtering
+  enabledAgents: z.string().default(''),
+
   // Health Check Configuration
   monitoringToken: z.string().default(''),
 
@@ -83,6 +86,7 @@ const parseSettings = (): Settings => {
     exaApiKey: process.env.EXA_API_KEY || '',
     thunderboltInferenceUrl: process.env.THUNDERBOLT_INFERENCE_URL || '',
     thunderboltInferenceApiKey: process.env.THUNDERBOLT_INFERENCE_API_KEY || '',
+    enabledAgents: process.env.ENABLED_AGENTS || '',
     haystackApiKey: process.env.HAYSTACK_API_KEY || '',
     haystackBaseUrl: process.env.HAYSTACK_BASE_URL || 'https://api.cloud.deepset.ai',
     haystackWorkspace: process.env.HAYSTACK_WORKSPACE_NAME || '',
@@ -202,6 +206,18 @@ export const getHaystackPipelines = (settings: Settings): import('@/haystack/typ
   }
 
   return []
+}
+
+/**
+ * Get the list of enabled agent IDs from ENABLED_AGENTS.
+ * Returns null if unset (all agents enabled).
+ */
+export const getEnabledAgentIds = (settings: Settings): string[] | null => {
+  if (!settings.enabledAgents) return null
+  return settings.enabledAgents
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
 }
 
 /** Parse comma-separated auto-approved domains into a list */

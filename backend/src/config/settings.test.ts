@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import {
   clearSettingsCache,
+  getEnabledAgentIds,
   getWaitlistAutoApproveDomains,
   getCorsMethodsList,
   getCorsOriginsList,
@@ -116,6 +117,39 @@ describe('Config Settings', () => {
       const methods = getCorsMethodsList(settings as any)
 
       expect(methods).toEqual([])
+    })
+  })
+
+  describe('getEnabledAgentIds', () => {
+    it('should return null when enabledAgents is empty', () => {
+      const result = getEnabledAgentIds({ enabledAgents: '' } as any)
+      expect(result).toBeNull()
+    })
+
+    it('should parse comma-separated agent IDs', () => {
+      const result = getEnabledAgentIds({
+        enabledAgents: 'agent-haystack-docs,agent-haystack-legal',
+      } as any)
+      expect(result).toEqual(['agent-haystack-docs', 'agent-haystack-legal'])
+    })
+
+    it('should parse a single agent ID', () => {
+      const result = getEnabledAgentIds({ enabledAgents: 'agent-haystack-docs' } as any)
+      expect(result).toEqual(['agent-haystack-docs'])
+    })
+
+    it('should trim whitespace from agent IDs', () => {
+      const result = getEnabledAgentIds({
+        enabledAgents: ' agent-haystack-docs , agent-haystack-legal ',
+      } as any)
+      expect(result).toEqual(['agent-haystack-docs', 'agent-haystack-legal'])
+    })
+
+    it('should filter out empty entries', () => {
+      const result = getEnabledAgentIds({
+        enabledAgents: 'agent-haystack-docs,,agent-haystack-legal,',
+      } as any)
+      expect(result).toEqual(['agent-haystack-docs', 'agent-haystack-legal'])
     })
   })
 

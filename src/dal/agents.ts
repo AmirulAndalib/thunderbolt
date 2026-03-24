@@ -2,6 +2,7 @@ import { and, desc, eq, isNull } from 'drizzle-orm'
 import type { AnyDrizzleDatabase } from '../db/database-interface'
 import { agentsTable } from '../db/tables'
 import { defaultAgentBuiltIn } from '../defaults/agents'
+import { isAgentTypeEnabled } from '@/lib/enabled-agent-types'
 import type { Agent, DrizzleQueryWithPromise } from '@/types'
 
 /**
@@ -24,14 +25,15 @@ export const getAllAgents = (db: AnyDrizzleDatabase) => {
  */
 export const getAvailableAgents = async (db: AnyDrizzleDatabase): Promise<Agent[]> => {
   try {
-    return (await db
+    const results = (await db
       .select()
       .from(agentsTable)
       .where(and(eq(agentsTable.enabled, 1), isNull(agentsTable.deletedAt)))
       .orderBy(desc(agentsTable.isSystem), agentsTable.name)) as Agent[]
+    return results.filter((a) => isAgentTypeEnabled(a.type))
   } catch (err) {
     console.warn('Failed to query agents table, using hardcoded default:', err)
-    return [defaultAgentBuiltIn]
+    return isAgentTypeEnabled('built-in') ? [defaultAgentBuiltIn] : []
   }
 }
 
@@ -51,32 +53,35 @@ export const getAgent = async (db: AnyDrizzleDatabase, id: string): Promise<Agen
  * Gets the currently selected agent from settings, falling back to the built-in agent.
  * Falls back to the hardcoded default if the agents table hasn't been seeded yet
  * (e.g. when frontend deploys before backend migration).
+ * Returns null if no usable agent can be resolved (e.g. all types disabled via VITE_ENABLED_AGENT_TYPES).
  */
-export const getSelectedAgent = async (db: AnyDrizzleDatabase): Promise<Agent> => {
+export const getSelectedAgent = async (db: AnyDrizzleDatabase): Promise<Agent | null> => {
   try {
     const { settingsTable } = await import('../db/tables')
     const settings = await db.select().from(settingsTable).where(eq(settingsTable.key, 'selected_agent'))
 
     if (settings.length > 0 && settings[0].value) {
       const agent = await getAgent(db, settings[0].value)
-      if (agent) {
+      if (agent && isAgentTypeEnabled(agent.type)) {
         return agent
       }
     }
 
     // Fall back to built-in agent from DB
-    const builtIn = await db
-      .select()
-      .from(agentsTable)
-      .where(and(eq(agentsTable.type, 'built-in'), isNull(agentsTable.deletedAt)))
+    if (isAgentTypeEnabled('built-in')) {
+      const builtIn = await db
+        .select()
+        .from(agentsTable)
+        .where(and(eq(agentsTable.type, 'built-in'), isNull(agentsTable.deletedAt)))
 
-    if (builtIn.length > 0) {
-      return builtIn[0] as Agent
+      if (builtIn.length > 0) {
+        return builtIn[0] as Agent
+      }
     }
   } catch (err) {
     console.warn('Failed to query agents table, using hardcoded default:', err)
   }
 
   // Hardcoded fallback — keeps the app functional even if agents table is missing
-  return defaultAgentBuiltIn
+  return isAgentTypeEnabled('built-in') ? defaultAgentBuiltIn : null
 }

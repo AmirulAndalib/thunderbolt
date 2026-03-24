@@ -1,4 +1,5 @@
 import { isAgentAvailableOnPlatform } from '@/lib/platform'
+import { isAgentTypeEnabled } from '@/lib/enabled-agent-types'
 import { isAgentAvailable } from '@/acp/stdio-stream'
 import { localAgentCandidates, hashAgent } from '@/defaults/agents'
 import { agentsTable } from '@/db/tables'
@@ -50,7 +51,7 @@ const upsertAgents = async (db: AnyDrizzleDatabase, agents: Agent[]): Promise<vo
  * Only runs on Tauri desktop — returns immediately on web/mobile.
  */
 export const discoverAndSeedLocalAgents = async (db: AnyDrizzleDatabase): Promise<Agent[]> => {
-  if (!isAgentAvailableOnPlatform('local')) {
+  if (!isAgentTypeEnabled('local') || !isAgentAvailableOnPlatform('local')) {
     return []
   }
 
@@ -79,6 +80,10 @@ const fetchRemoteAgentDescriptors = async (cloudUrl: string): Promise<RemoteAgen
 }
 
 export const discoverAndSeedRemoteAgents = async (db: AnyDrizzleDatabase, cloudUrl: string): Promise<Agent[]> => {
+  if (!isAgentTypeEnabled('remote')) {
+    return []
+  }
+
   const descriptors = await fetchRemoteAgentDescriptors(cloudUrl)
   if (descriptors.length === 0) {
     return []

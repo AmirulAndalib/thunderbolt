@@ -1,5 +1,5 @@
 import { Elysia } from 'elysia'
-import { getSettings, getHaystackPipelines } from '@/config/settings'
+import { getSettings, getHaystackPipelines, getEnabledAgentIds } from '@/config/settings'
 import { createHaystackProvider } from './haystack-provider'
 import type { AgentProvider } from './types'
 
@@ -13,6 +13,7 @@ const getWsBaseUrl = (requestUrl: string): string => {
 export const createAgentsRoutes = () => {
   const settings = getSettings()
   const pipelines = getHaystackPipelines(settings)
+  const enabledIds = getEnabledAgentIds(settings)
 
   const router = new Elysia({ prefix: '/agents' })
 
@@ -21,7 +22,8 @@ export const createAgentsRoutes = () => {
 
     const providers: AgentProvider[] = [...(pipelines.length > 0 ? [createHaystackProvider(pipelines, wsBaseUrl)] : [])]
 
-    const agents = providers.flatMap((p) => p.getAgents())
+    const allAgents = providers.flatMap((p) => p.getAgents())
+    const agents = enabledIds ? allAgents.filter((a) => enabledIds.includes(a.id)) : allAgents
 
     return { data: agents }
   })

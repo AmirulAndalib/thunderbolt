@@ -161,8 +161,13 @@ export const useHydrateChatStore = ({ id, isNew }: UseHydrateChatStoreParams) =>
 
     // For existing chats, use the agent stored on the thread rather than the global setting.
     // This ensures switching chats shows the correct agent in the selector.
-    let agentForSession = selectedAgent
-    if (chatThread?.agentId && chatThread.agentId !== selectedAgent.id) {
+    // Fall back to first available agent if no selected agent (e.g. when enabled types exclude built-in).
+    let agentForSession = selectedAgent ?? agents[0]
+    if (!agentForSession) {
+      console.error('No agents available — check VITE_ENABLED_AGENT_TYPES and agent configuration')
+      return
+    }
+    if (chatThread?.agentId && chatThread.agentId !== agentForSession.id) {
       const threadAgent = await getAgent(db, chatThread.agentId)
       if (threadAgent) {
         agentForSession = threadAgent

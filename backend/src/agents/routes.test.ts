@@ -13,6 +13,7 @@ describe('createAgentsRoutes', () => {
     delete process.env.HAYSTACK_PIPELINE_NAME
     delete process.env.HAYSTACK_PIPELINE_ID
     delete process.env.HAYSTACK_PIPELINES
+    delete process.env.ENABLED_AGENTS
     clearSettingsCache()
   })
 
@@ -83,6 +84,69 @@ describe('createAgentsRoutes', () => {
     expect(data.data[0].icon).toBe('file-text')
     expect(data.data[1].id).toBe('agent-haystack-legal')
     expect(data.data[1].icon).toBe('scale')
+  })
+
+  it('should filter agents by ENABLED_AGENTS when set', async () => {
+    process.env.HAYSTACK_API_KEY = 'test-key'
+    process.env.HAYSTACK_WORKSPACE_NAME = 'test-workspace'
+    process.env.HAYSTACK_PIPELINES = JSON.stringify([
+      { slug: 'eng-docs', name: 'Engineering Docs', pipelineName: 'eng-v1', pipelineId: 'p1' },
+      { slug: 'legal', name: 'Legal Search', pipelineName: 'legal-v1', pipelineId: 'p2' },
+      { slug: 'hr', name: 'HR Docs', pipelineName: 'hr-v1', pipelineId: 'p3' },
+    ])
+    process.env.ENABLED_AGENTS = 'agent-haystack-eng-docs,agent-haystack-hr'
+    clearSettingsCache()
+
+    const { createAgentsRoutes } = await import('./routes')
+    const { Elysia } = await import('elysia')
+
+    const app = new Elysia().use(createAgentsRoutes())
+
+    const response = await app.handle(new Request('http://localhost/agents'))
+    const data = (await response.json()) as { data: Array<Record<string, unknown>> }
+
+    expect(data.data).toHaveLength(2)
+    expect(data.data[0].id).toBe('agent-haystack-eng-docs')
+    expect(data.data[1].id).toBe('agent-haystack-hr')
+  })
+
+  it('should return all agents when ENABLED_AGENTS is not set', async () => {
+    process.env.HAYSTACK_API_KEY = 'test-key'
+    process.env.HAYSTACK_WORKSPACE_NAME = 'test-workspace'
+    process.env.HAYSTACK_PIPELINES = JSON.stringify([
+      { slug: 'eng-docs', name: 'Engineering Docs', pipelineName: 'eng-v1', pipelineId: 'p1' },
+      { slug: 'legal', name: 'Legal Search', pipelineName: 'legal-v1', pipelineId: 'p2' },
+    ])
+    clearSettingsCache()
+
+    const { createAgentsRoutes } = await import('./routes')
+    const { Elysia } = await import('elysia')
+
+    const app = new Elysia().use(createAgentsRoutes())
+
+    const response = await app.handle(new Request('http://localhost/agents'))
+    const data = (await response.json()) as { data: Array<Record<string, unknown>> }
+
+    expect(data.data).toHaveLength(2)
+  })
+
+  it('should return empty when ENABLED_AGENTS matches no configured agents', async () => {
+    process.env.HAYSTACK_API_KEY = 'test-key'
+    process.env.HAYSTACK_WORKSPACE_NAME = 'test-workspace'
+    process.env.HAYSTACK_PIPELINE_NAME = 'docs'
+    process.env.HAYSTACK_PIPELINE_ID = 'p1'
+    process.env.ENABLED_AGENTS = 'agent-haystack-nonexistent'
+    clearSettingsCache()
+
+    const { createAgentsRoutes } = await import('./routes')
+    const { Elysia } = await import('elysia')
+
+    const app = new Elysia().use(createAgentsRoutes())
+
+    const response = await app.handle(new Request('http://localhost/agents'))
+    const data = (await response.json()) as { data: Array<Record<string, unknown>> }
+
+    expect(data.data).toHaveLength(0)
   })
 
   it('should derive WebSocket URLs from request origin', async () => {

@@ -99,8 +99,9 @@ describe('Agents DAL', () => {
         .values({ id: 'agent-built-in', name: 'Thunderbolt', type: 'built-in', transport: 'in-process', isSystem: 1 })
 
       const agent = await getSelectedAgent(getDb())
-      expect(agent.name).toBe('Thunderbolt')
-      expect(agent.type).toBe('built-in')
+      expect(agent).not.toBeNull()
+      expect(agent!.name).toBe('Thunderbolt')
+      expect(agent!.type).toBe('built-in')
     })
 
     it('should return selected agent from settings', async () => {
@@ -113,7 +114,8 @@ describe('Agents DAL', () => {
       await db.insert(settingsTable).values({ key: 'selected_agent', value: agentId })
 
       const agent = await getSelectedAgent(getDb())
-      expect(agent.name).toBe('Claude Code')
+      expect(agent).not.toBeNull()
+      expect(agent!.name).toBe('Claude Code')
     })
 
     it('should fall back to built-in when selected agent is deleted', async () => {
@@ -132,7 +134,8 @@ describe('Agents DAL', () => {
       await db.insert(settingsTable).values({ key: 'selected_agent', value: agentId })
 
       const agent = await getSelectedAgent(getDb())
-      expect(agent.name).toBe('Thunderbolt')
+      expect(agent).not.toBeNull()
+      expect(agent!.name).toBe('Thunderbolt')
     })
   })
 })
