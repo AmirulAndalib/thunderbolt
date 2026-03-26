@@ -1,6 +1,7 @@
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js'
 import { isTauri } from '@/lib/platform'
+import { isLocalMcpServer } from '@/lib/mcp-utils'
 import type { McpServerConfig, McpTransportResult, CredentialStore } from '@/types/mcp'
 
 /**
@@ -12,6 +13,7 @@ import type { McpServerConfig, McpTransportResult, CredentialStore } from '@/typ
 export const createTransport = async (
   config: McpServerConfig,
   credentialStore: CredentialStore,
+  options?: { cloudUrl?: string },
 ): Promise<McpTransportResult> => {
   const { transport, auth } = config
 
@@ -24,6 +26,14 @@ export const createTransport = async (
       const { createTauriHttpTransport } = await import('./tauri-http-transport')
       return { transport: createTauriHttpTransport(url, opts) }
     }
+
+    if (options?.cloudUrl && !isLocalMcpServer(transport.url)) {
+      const { createProxiedFetch } = await import('./proxied-fetch')
+      return {
+        transport: new StreamableHTTPClientTransport(url, { ...opts, fetch: createProxiedFetch(options.cloudUrl) }),
+      }
+    }
+
     return { transport: new StreamableHTTPClientTransport(url, opts) }
   }
 
@@ -36,6 +46,12 @@ export const createTransport = async (
       const { createTauriSseTransport } = await import('./tauri-sse-transport')
       return { transport: createTauriSseTransport(url, opts) }
     }
+
+    if (options?.cloudUrl && !isLocalMcpServer(transport.url)) {
+      const { createProxiedFetch } = await import('./proxied-fetch')
+      return { transport: new SSEClientTransport(url, { ...opts, fetch: createProxiedFetch(options.cloudUrl) }) }
+    }
+
     return { transport: new SSEClientTransport(url, opts) }
   }
 

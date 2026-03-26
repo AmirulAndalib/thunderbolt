@@ -60,3 +60,13 @@ export const validateStdioArgs = (args: string[]): void => {
     }
   }
 }
+
+/** Returns true when an MCP server URL targets localhost/loopback (no CORS proxy needed) */
+export const isLocalMcpServer = (url: string): boolean => {
+  try {
+    const hostname = new URL(url).hostname.toLowerCase()
+    return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1' || hostname === '0.0.0.0'
+  } catch {
+    return false
+  }
+}
