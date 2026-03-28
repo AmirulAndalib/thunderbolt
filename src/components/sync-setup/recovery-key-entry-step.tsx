@@ -12,13 +12,13 @@ type RecoveryKeyEntryStepProps = {
 }
 
 export const RecoveryKeyEntryStep = ({ value, error, onChange, onSubmit, isLoading }: RecoveryKeyEntryStepProps) => {
+  const wordCount = value.trim() ? value.trim().split(/\s+/).length : 0
+
   const handleKeyDown = (e: KeyboardEvent) => {
-    if (e.key === 'Enter' && e.metaKey && !isLoading) {
+    if (e.key === 'Enter' && e.metaKey && !isLoading && wordCount === 24) {
       onSubmit()
     }
   }
-
-  const wordCount = value.trim() ? value.trim().split(/\s+/).length : 0
 
   return (
     <div className="w-full flex flex-col">
