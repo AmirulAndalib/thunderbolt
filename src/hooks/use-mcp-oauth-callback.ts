@@ -51,7 +51,7 @@ export const useMcpOAuthCallback = () => {
 
   useEffect(() => {
     const mcpOauth = (location.state as { mcpOauth?: McpOAuthCallbackData } | null)?.mcpOauth
-    if (!mcpOauth) return
+    if (!mcpOauth) {return}
 
     const handleCallback = async () => {
       setIsProcessingOAuth(true)

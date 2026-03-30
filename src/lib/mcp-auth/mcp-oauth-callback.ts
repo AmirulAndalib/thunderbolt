@@ -21,14 +21,14 @@ export const waitForMcpOAuthCode = (): Promise<string> =>
 
 /** Called by the deep link handler when an MCP OAuth callback arrives with a code. */
 export const deliverMcpOAuthCode = (code: string) => {
-  if (!pending) return
+  if (!pending) {return}
   pending.resolve(code)
   pending = null
 }
 
 /** Called by the deep link handler when an MCP OAuth callback arrives with an error. */
 export const failMcpOAuthCode = (error: string) => {
-  if (!pending) return
+  if (!pending) {return}
   pending.reject(new Error(error))
   pending = null
 }

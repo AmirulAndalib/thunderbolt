@@ -12,9 +12,9 @@ import type { CredentialStore } from '@/types/mcp'
 
 const thunderboltDomain = import.meta.env.VITE_THUNDERBOLT_DOMAIN ?? 'thunderbolt.io'
 
-const MCP_OAUTH_CALLBACK_PATH = '/mcp/oauth/callback'
-const mobileRedirectUrl = `https://${thunderboltDomain}${MCP_OAUTH_CALLBACK_PATH}`
-const webRedirectUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}${MCP_OAUTH_CALLBACK_PATH}`
+const mcpOAuthCallbackPath = '/mcp/oauth/callback'
+const mobileRedirectUrl = `https://${thunderboltDomain}${mcpOAuthCallbackPath}`
+const webRedirectUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}${mcpOAuthCallbackPath}`
 
 type McpOAuthPlatform = 'desktop' | 'mobile' | 'web'
 

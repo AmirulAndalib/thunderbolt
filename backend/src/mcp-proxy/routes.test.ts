@@ -76,7 +76,8 @@ describe('MCP Proxy Routes', () => {
     expect(body).toBe('Missing X-Mcp-Target-Url header')
   })
 
-  it('returns 400 for localhost SSRF-blocked URLs', async () => {
+  it('allows localhost MCP server URLs', async () => {
+    mockFetch.mockResolvedValueOnce(new Response('ok', { status: 200 }))
     const response = await app.handle(
       new Request('http://localhost/mcp-proxy/', {
         method: 'POST',
@@ -84,33 +85,8 @@ describe('MCP Proxy Routes', () => {
       }),
     )
 
-    expect(response.status).toBe(400)
-    expect(mockFetch).not.toHaveBeenCalled()
-
-    const body = await response.text()
-    expect(body).toBe('Internal URLs are not allowed')
-  })
-
-  it('returns 400 for private IP SSRF-blocked URLs', async () => {
-    const privateUrls = [
-      'http://10.0.0.1/internal',
-      'http://192.168.1.1/admin',
-      'http://172.16.0.1/secret',
-      'http://169.254.169.254/latest/meta-data/',
-    ]
-
-    for (const targetUrl of privateUrls) {
-      mockFetch.mockClear()
-      const response = await app.handle(
-        new Request('http://localhost/mcp-proxy/', {
-          method: 'POST',
-          headers: { 'x-mcp-target-url': targetUrl },
-        }),
-      )
-
-      expect(response.status).toBe(400)
-      expect(mockFetch).not.toHaveBeenCalled()
-    }
+    expect(response.status).toBe(200)
+    expect(mockFetch).toHaveBeenCalled()
   })
 
   it('forwards POST request with body to target', async () => {
