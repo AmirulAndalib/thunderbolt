@@ -5,6 +5,7 @@ import { PowerSyncContext } from '@powersync/react'
 
 import ChatDetailPage from '@/chats/detail'
 import MagicLinkVerify from '@/components/magic-link-verify'
+import McpOAuthCallback from '@/components/mcp-oauth-callback'
 import OAuthCallback from '@/components/oauth-callback'
 import { AccountDeleted } from '@/components/account-deleted'
 import { RevokedDeviceModal } from '@/components/revoked-device-modal'
@@ -82,6 +83,7 @@ const AppRoutes = ({ initData }: { initData: InitData }) => {
     <Routes>
       {/* Auth flow routes - NO guards (must work during auth) */}
       <Route path="/oauth/callback" element={<OAuthCallback />} />
+      <Route path="/mcp/oauth/callback" element={<McpOAuthCallback />} />
       <Route path="/auth/verify" element={<MagicLinkVerify />} />
 
       {/* Waitlist routes - unauthenticated only (skip when bypass is enabled) */}

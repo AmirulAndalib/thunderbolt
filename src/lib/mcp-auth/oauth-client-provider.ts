@@ -1,4 +1,3 @@
-import { openUrl } from '@tauri-apps/plugin-opener'
 import type {
   OAuthClientInformation,
   OAuthClientInformationFull,
@@ -6,49 +5,61 @@ import type {
   OAuthTokens,
 } from '@modelcontextprotocol/sdk/shared/auth.js'
 import type { OAuthClientProvider } from '@modelcontextprotocol/sdk/client/auth.js'
+import { isMobile, isTauri } from '@/lib/platform'
+import { waitForMcpOAuthCode } from '@/lib/mcp-auth/mcp-oauth-callback'
+import { setMcpOAuthState } from '@/lib/mcp-auth/mcp-oauth-state'
 import type { CredentialStore } from '@/types/mcp'
 
-/**
- * Static client ID for Thunderbolt published as a Client ID Metadata Document (CIMD).
- * Authorization servers that support CIMD will fetch this to verify the client.
- */
 const thunderboltDomain = import.meta.env.VITE_THUNDERBOLT_DOMAIN ?? 'thunderbolt.io'
-const thunderboltClientId = `https://${thunderboltDomain}/.well-known/oauth-client/thunderbolt`
+
+const MCP_OAUTH_CALLBACK_PATH = '/mcp/oauth/callback'
+const mobileRedirectUrl = `https://${thunderboltDomain}${MCP_OAUTH_CALLBACK_PATH}`
+const webRedirectUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}${MCP_OAUTH_CALLBACK_PATH}`
+
+type McpOAuthPlatform = 'desktop' | 'mobile' | 'web'
+
+type McpOAuthRedirectConfig = {
+  platform: McpOAuthPlatform
+  redirectUrl: string
+  redirectUris: string[]
+  serverId: string
+  serverUrl: string
+}
 
 /**
  * OAuth 2.1 client provider for MCP servers.
  *
- * Implements the MCP SDK's `OAuthClientProvider` interface for a single MCP server.
- * Uses the existing loopback OAuth server (Rust command `start_oauth_server`) to capture
- * the authorization code callback.
- *
- * The loopback port must be known before the SDK reads `redirectUrl`, so callers
- * should use `createMcpOAuthProvider()` which starts the server first.
- *
- * The code verifier is held in memory only (never persisted) per security requirements.
- * Tokens are stored encrypted via the `CredentialStore`.
+ * Platform-aware redirect and code capture:
+ * - Desktop: loopback HTTP server captures redirect
+ * - Mobile: deep link captures redirect (via mcp-oauth-callback bridge)
+ * - Web: NEVER auto-redirects. Stores the auth URL for user-initiated redirect via "Authorize" button.
  */
 class McpOAuthClientProvider implements OAuthClientProvider {
   private readonly serverId: string
+  private readonly serverUrl: string
   private readonly credentialStore: CredentialStore
-  private readonly port: number
+  private readonly config: McpOAuthRedirectConfig
   private codeVerifierValue: string | null = null
   private clientInfo: OAuthClientInformationFull | null = null
 
-  constructor(serverId: string, credentialStore: CredentialStore, port: number) {
+  /** Set by redirectToAuthorization on web — the URL the user needs to visit */
+  pendingAuthUrl: string | null = null
+
+  constructor(serverId: string, credentialStore: CredentialStore, config: McpOAuthRedirectConfig) {
     this.serverId = serverId
+    this.serverUrl = config.serverUrl
     this.credentialStore = credentialStore
-    this.port = port
+    this.config = config
   }
 
   get redirectUrl(): string {
-    return `http://localhost:${this.port}`
+    return this.config.redirectUrl
   }
 
   get clientMetadata(): OAuthClientMetadata {
     return {
       client_name: 'Thunderbolt',
-      redirect_uris: ['http://localhost:17421', 'http://localhost:17422', 'http://localhost:17423'],
+      redirect_uris: this.config.redirectUris,
       grant_types: ['authorization_code', 'refresh_token'],
       response_types: ['code'],
       token_endpoint_auth_method: 'none',
@@ -56,11 +67,7 @@ class McpOAuthClientProvider implements OAuthClientProvider {
   }
 
   clientInformation(): OAuthClientInformation | undefined {
-    if (this.clientInfo) {
-      return this.clientInfo
-    }
-    // Return static client ID for CIMD-based registration
-    return { client_id: thunderboltClientId }
+    return this.clientInfo ?? undefined
   }
 
   async saveClientInformation(clientInformation: OAuthClientInformationFull): Promise<void> {
@@ -93,7 +100,48 @@ class McpOAuthClientProvider implements OAuthClientProvider {
   }
 
   async redirectToAuthorization(authorizationUrl: URL): Promise<void> {
-    await openUrl(authorizationUrl.toString())
+    // NEVER redirect automatically — store the URL for user-initiated redirect.
+    // The "Authorize" button on the server card will call startOAuthRedirect().
+    this.pendingAuthUrl = authorizationUrl.toString()
+  }
+
+  /**
+   * User-initiated OAuth redirect. Called when the user clicks "Authorize".
+   * - Web: persists state to settings, then redirects the page (same-tab).
+   * - Desktop/Mobile: persists state, then opens system browser.
+   */
+  async startOAuthRedirect(): Promise<void> {
+    if (!this.pendingAuthUrl) {
+      throw new Error('No pending OAuth authorization URL')
+    }
+
+    await setMcpOAuthState({
+      serverId: this.serverId,
+      serverUrl: this.serverUrl,
+      codeVerifier: this.codeVerifierValue,
+      redirectUrl: this.config.redirectUrl,
+      clientInfo: this.clientInfo ? JSON.stringify(this.clientInfo) : null,
+    })
+
+    if (this.config.platform === 'web') {
+      window.location.assign(this.pendingAuthUrl)
+      return
+    }
+
+    // Desktop/mobile: open in system browser
+    const { openUrl } = await import('@tauri-apps/plugin-opener')
+    await openUrl(this.pendingAuthUrl)
+  }
+
+  /**
+   * Waits for the authorization code (desktop/mobile only).
+   * Web uses the callback hook instead.
+   */
+  async waitForAuthCode(): Promise<string> {
+    if (this.config.platform === 'mobile') {
+      return waitForMcpOAuthCode()
+    }
+    return this.waitForLoopbackCode()
   }
 
   async saveCodeVerifier(codeVerifier: string): Promise<void> {
@@ -118,20 +166,78 @@ class McpOAuthClientProvider implements OAuthClientProvider {
       this.codeVerifierValue = null
     }
   }
+
+  private waitForLoopbackCode = async (): Promise<string> => {
+    const { listen } = await import('@tauri-apps/api/event')
+
+    return new Promise<string>((resolve, reject) => {
+      let unlisten: (() => void) | null = null
+
+      const timeoutId = setTimeout(
+        () => {
+          unlisten?.()
+          reject(new Error('OAuth authorization timed out'))
+        },
+        5 * 60 * 1000,
+      )
+
+      listen<{ url: string }>('oauth-callback', (event) => {
+        clearTimeout(timeoutId)
+        unlisten?.()
+        const callbackUrl = new URL(event.payload.url)
+        const code = callbackUrl.searchParams.get('code')
+        const error = callbackUrl.searchParams.get('error')
+
+        if (error) {
+          reject(new Error(callbackUrl.searchParams.get('error_description') || error))
+        } else if (code) {
+          resolve(code)
+        } else {
+          reject(new Error('No authorization code in callback'))
+        }
+      }).then((fn) => {
+        unlisten = fn
+      })
+    })
+  }
 }
 
-/**
- * Starts the loopback OAuth server and creates an `McpOAuthClientProvider`
- * with the actual bound port. This ensures `redirectUrl` is correct
- * when the SDK reads it before calling `redirectToAuthorization`.
- */
 const createMcpOAuthProvider = async (
   serverId: string,
   credentialStore: CredentialStore,
+  serverUrl?: string,
 ): Promise<McpOAuthClientProvider> => {
+  const url = serverUrl ?? ''
+
+  if (!isTauri()) {
+    return new McpOAuthClientProvider(serverId, credentialStore, {
+      platform: 'web',
+      redirectUrl: webRedirectUrl,
+      redirectUris: [webRedirectUrl],
+      serverId,
+      serverUrl: url,
+    })
+  }
+
+  if (isMobile()) {
+    return new McpOAuthClientProvider(serverId, credentialStore, {
+      platform: 'mobile',
+      redirectUrl: mobileRedirectUrl,
+      redirectUris: [mobileRedirectUrl],
+      serverId,
+      serverUrl: url,
+    })
+  }
+
   const { invoke } = await import('@tauri-apps/api/core')
   const port = await invoke<number>('start_oauth_server')
-  return new McpOAuthClientProvider(serverId, credentialStore, port)
+  return new McpOAuthClientProvider(serverId, credentialStore, {
+    platform: 'desktop',
+    redirectUrl: `http://localhost:${port}`,
+    redirectUris: ['http://localhost:17421', 'http://localhost:17422', 'http://localhost:17423'],
+    serverId,
+    serverUrl: url,
+  })
 }
 
 export { McpOAuthClientProvider, createMcpOAuthProvider }

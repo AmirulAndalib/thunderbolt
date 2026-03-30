@@ -94,10 +94,9 @@ const createCredentialStore = (db: AnyDrizzleDatabase): CredentialStore => {
   const save = async (serverId: string, credential: McpCredential): Promise<void> => {
     const key = await getEncryptionKey()
     const encryptedCredential = await encrypt(key, JSON.stringify(credential))
-    await db
-      .insert(mcpCredentialsTable)
-      .values({ id: serverId, encryptedCredential })
-      .onConflictDoUpdate({ target: mcpCredentialsTable.id, set: { encryptedCredential } })
+    // Delete-then-insert pattern — PowerSync's view-based tables don't support onConflictDoUpdate
+    await db.delete(mcpCredentialsTable).where(eq(mcpCredentialsTable.id, serverId))
+    await db.insert(mcpCredentialsTable).values({ id: serverId, encryptedCredential })
   }
 
   const load = async (serverId: string): Promise<McpCredential | null> => {
@@ -111,9 +110,14 @@ const createCredentialStore = (db: AnyDrizzleDatabase): CredentialStore => {
       return null
     }
 
-    const key = await getEncryptionKey()
-    const plaintext = await decrypt(key, row.encryptedCredential)
-    return JSON.parse(plaintext) as McpCredential
+    try {
+      const key = await getEncryptionKey()
+      const plaintext = await decrypt(key, row.encryptedCredential)
+      return JSON.parse(plaintext) as McpCredential
+    } catch (err) {
+      console.error(`MCP credential decryption failed for server ${serverId}:`, err)
+      return null
+    }
   }
 
   const deleteCredential = async (serverId: string): Promise<void> => {
