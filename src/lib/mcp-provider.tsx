@@ -136,7 +136,7 @@ export const MCPProvider = ({ children }: { children: ReactNode }) => {
     }
   }
 
-  const disconnectServer = (serverId: string) => {
+  const disconnectServer = async (serverId: string) => {
     const pendingRetry = retryTimeouts.current.get(serverId)
     if (pendingRetry) {
       clearTimeout(pendingRetry)
@@ -145,13 +145,13 @@ export const MCPProvider = ({ children }: { children: ReactNode }) => {
 
     const transport = transportRefs.current.get(serverId)
     if (transport) {
-      transport.close()
+      await transport.close()
       transportRefs.current.delete(serverId)
     }
 
     const client = clientRefs.current.get(serverId)
     if (client?.close) {
-      client.close()
+      await client.close()
     }
     clientRefs.current.delete(serverId)
   }
@@ -177,13 +177,13 @@ export const MCPProvider = ({ children }: { children: ReactNode }) => {
     }
   }, [])
 
-  const removeServer = useCallback((serverId: string) => {
-    disconnectServer(serverId)
-    credentialStoreRef.current.delete(serverId)
+  const removeServer = useCallback(async (serverId: string) => {
+    await disconnectServer(serverId)
+    await credentialStoreRef.current.delete(serverId)
     setServers((prev) => prev.filter((s) => s.id !== serverId))
   }, [])
 
-  const updateServerStatus = useCallback((serverId: string, enabled: boolean) => {
+  const updateServerStatus = useCallback(async (serverId: string, enabled: boolean) => {
     const server = serversRef.current.find((s) => s.id === serverId)
     if (!server) {
       return
@@ -192,7 +192,7 @@ export const MCPProvider = ({ children }: { children: ReactNode }) => {
     if (enabled) {
       connectServer({ ...server, enabled })
     } else {
-      disconnectServer(serverId)
+      await disconnectServer(serverId)
       setServers((prev) =>
         prev.map((s) =>
           s.id === serverId
@@ -209,7 +209,7 @@ export const MCPProvider = ({ children }: { children: ReactNode }) => {
       return
     }
 
-    disconnectServer(serverId)
+    await disconnectServer(serverId)
     await connectServer(server, 0)
   }
 
@@ -280,7 +280,7 @@ export const MCPProvider = ({ children }: { children: ReactNode }) => {
       await httpTransport.finishAuth(code)
 
       // Reconnect with the new tokens
-      disconnectServer(serverId)
+      await disconnectServer(serverId)
       await connectServer(server, 0)
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Authorization failed'

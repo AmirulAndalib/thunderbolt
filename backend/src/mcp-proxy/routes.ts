@@ -31,8 +31,44 @@ const mcpRequestDenylist = [
   'x-real-ip',
 ]
 
+/** Shared handler for proxying MCP requests to the target server. */
+const createProxyHandler = (fetchFn: typeof fetch) =>
+  async (ctx: { headers: Record<string, string | undefined>; query: Record<string, string>; request: Request; set: { status: number }; params?: Record<string, string> }) => {
+    const targetBaseUrl = ctx.headers['x-mcp-target-url']
+    if (!targetBaseUrl) {
+      ctx.set.status = 400
+      return new Response('Missing X-Mcp-Target-Url header', { headers: { 'Content-Type': 'text/plain' } })
+    }
+
+    const validation = validateMcpTargetUrl(targetBaseUrl)
+    if (!validation.valid) {
+      ctx.set.status = 400
+      return new Response(validation.error || 'Invalid target URL', { headers: { 'Content-Type': 'text/plain' } })
+    }
+
+    const subPath = ctx.params?.['*'] || ''
+    const queryString = buildQueryString(ctx.query)
+    const url = subPath ? `${targetBaseUrl}/${subPath}${queryString}` : `${targetBaseUrl}${queryString}`
+    const headers = filterHeaders(ctx.headers, mcpRequestDenylist)
+
+    const response = await fetchFn(url, {
+      method: ctx.request.method,
+      headers,
+      body: ctx.request.body as BodyInit,
+    })
+
+    const responseHeaders = extractResponseHeaders(response.headers)
+    responseHeaders.set('cross-origin-resource-policy', 'cross-origin')
+
+    return new Response(response.body, {
+      status: response.status,
+      headers: responseHeaders,
+    })
+  }
+
 export const createMcpProxyRoutes = (fetchFn: typeof fetch = globalThis.fetch) => {
   const settings = getSettings()
+  const handler = createProxyHandler(fetchFn)
 
   return new Elysia({ prefix: '/mcp-proxy' })
     .onError(safeErrorHandler)
@@ -43,76 +79,6 @@ export const createMcpProxyRoutes = (fetchFn: typeof fetch = globalThis.fetch) =
         exposeHeaders: settings.corsExposeHeaders,
       }),
     )
-    .all(
-      '/',
-      async (ctx) => {
-        const targetBaseUrl = ctx.headers['x-mcp-target-url']
-        if (!targetBaseUrl) {
-          ctx.set.status = 400
-          return new Response('Missing X-Mcp-Target-Url header', { headers: { 'Content-Type': 'text/plain' } })
-        }
-
-        const validation = validateMcpTargetUrl(targetBaseUrl)
-        if (!validation.valid) {
-          ctx.set.status = 400
-          return new Response(validation.error || 'Invalid target URL', { headers: { 'Content-Type': 'text/plain' } })
-        }
-
-        const queryString = buildQueryString(ctx.query)
-        const url = `${targetBaseUrl}${queryString}`
-        const headers = filterHeaders(ctx.headers, mcpRequestDenylist)
-
-        const response = await fetchFn(url, {
-          method: ctx.request.method,
-          headers,
-          body: ctx.request.body as BodyInit,
-        })
-
-        const responseHeaders = extractResponseHeaders(response.headers)
-        responseHeaders.set('cross-origin-resource-policy', 'cross-origin')
-
-        return new Response(response.body, {
-          status: response.status,
-          headers: responseHeaders,
-        })
-      },
-      { parse: 'none' },
-    )
-    .all(
-      '/*',
-      async (ctx) => {
-        const targetBaseUrl = ctx.headers['x-mcp-target-url']
-        if (!targetBaseUrl) {
-          ctx.set.status = 400
-          return new Response('Missing X-Mcp-Target-Url header', { headers: { 'Content-Type': 'text/plain' } })
-        }
-
-        const validation = validateMcpTargetUrl(targetBaseUrl)
-        if (!validation.valid) {
-          ctx.set.status = 400
-          return new Response(validation.error || 'Invalid target URL', { headers: { 'Content-Type': 'text/plain' } })
-        }
-
-        const subPath = ctx.params['*'] || ''
-        const queryString = buildQueryString(ctx.query)
-        const url = subPath ? `${targetBaseUrl}/${subPath}${queryString}` : `${targetBaseUrl}${queryString}`
-
-        const headers = filterHeaders(ctx.headers, mcpRequestDenylist)
-
-        const response = await fetchFn(url, {
-          method: ctx.request.method,
-          headers,
-          body: ctx.request.body as BodyInit,
-        })
-
-        const responseHeaders = extractResponseHeaders(response.headers)
-        responseHeaders.set('cross-origin-resource-policy', 'cross-origin')
-
-        return new Response(response.body, {
-          status: response.status,
-          headers: responseHeaders,
-        })
-      },
-      { parse: 'none' },
-    )
+    .all('/', handler, { parse: 'none' })
+    .all('/*', handler, { parse: 'none' })
 }
