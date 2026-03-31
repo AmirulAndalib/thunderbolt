@@ -6,7 +6,8 @@ import { useSettings } from '@/hooks/use-settings'
 import { useUnitsOptions } from '@/hooks/use-units-options'
 import { privacyPolicyUrl } from '@/lib/constants'
 import { extractCountryFromLocation } from '@/lib/country-utils'
-import { getAuthToken, clearAuthToken } from '@/lib/auth-token'
+import { getAuthToken } from '@/lib/auth-token'
+import { clearLocalData } from '@/lib/cleanup'
 import { trackEvent } from '@/lib/posthog'
 import type { CountryUnitsData } from '@/types'
 import ky from 'ky'
@@ -36,9 +37,7 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { SectionCard } from '@/components/ui/section-card'
 import { Switch } from '@/components/ui/switch'
-import { resetAppDir } from '@/lib/fs'
 import { usePostHog } from 'posthog-js/react'
-import { setSyncEnabled } from '@/db/powersync'
 import { usePowerSyncStatus } from '@/hooks/use-powersync-status'
 import { useSyncEnabledToggle } from '@/hooks/use-sync-enabled-toggle'
 
@@ -258,9 +257,8 @@ export default function PreferencesSettingsPage() {
   const handleResetDatabase = async () => {
     dispatch({ type: 'SET_IS_RESETTING', payload: true })
     try {
-      await resetAppDir()
+      await clearLocalData()
       trackEvent('settings_database_reset')
-      // Refresh the page to reinitialize the app
       window.location.reload()
     } catch (error) {
       console.error('Failed to reset database:', error)
@@ -273,7 +271,6 @@ export default function PreferencesSettingsPage() {
     dispatch({ type: 'SET_IS_DELETING_ACCOUNT', payload: true })
 
     try {
-      await setSyncEnabled(false)
       const token = getAuthToken()
       if (!token) {
         setDeleteAccountError('Not signed in.')
@@ -285,8 +282,7 @@ export default function PreferencesSettingsPage() {
         headers: { Authorization: `Bearer ${token}` },
         credentials: 'omit',
       })
-      await clearAuthToken()
-      await resetAppDir()
+      await clearLocalData()
       window.location.reload()
     } catch (error) {
       console.error('Failed to delete account:', error)
