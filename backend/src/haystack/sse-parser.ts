@@ -1,42 +1,10 @@
 import { z } from 'zod'
+import { deepsetResultPayloadSchema } from './types'
 import type { DeepsetResultPayload, DeepsetSSEEvent, HaystackDocumentMeta, HaystackReferenceMeta } from './types'
 
 const deltaEventSchema = z.object({
   type: z.literal('delta'),
   delta: z.object({ text: z.string() }),
-})
-
-const deepsetFileSchema = z.object({
-  id: z.string(),
-  name: z.string(),
-})
-
-const deepsetReferenceSchema = z.object({
-  document_position: z.number(),
-  document_id: z.string(),
-})
-
-const deepsetAnswerSchema = z.object({
-  answer: z.string(),
-  files: z.array(deepsetFileSchema).default([]),
-  meta: z
-    .object({
-      _references: z.array(deepsetReferenceSchema).default([]),
-    })
-    .optional(),
-})
-
-const deepsetDocumentSchema = z.object({
-  id: z.string(),
-  content: z.string(),
-  score: z.number(),
-  file: deepsetFileSchema,
-  meta: z.object({ page_number: z.number().optional() }).optional(),
-})
-
-const deepsetResultPayloadSchema = z.object({
-  answers: z.array(deepsetAnswerSchema),
-  documents: z.array(deepsetDocumentSchema),
 })
 
 const resultEventSchema = z.object({
