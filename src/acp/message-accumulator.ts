@@ -35,7 +35,7 @@ const haystackMetaSchema = z.object({
     .optional(),
 })
 
-const parseMeta = (
+export const parseMeta = (
   meta: unknown,
 ): { haystackReferences?: HaystackReferenceMeta[]; haystackDocuments?: HaystackDocumentMeta[] } | null => {
   const result = haystackMetaSchema.safeParse(meta)
