@@ -176,13 +176,7 @@ export const useAcpChatActions = (saveMessages?: SaveMessagesFunction) => {
 
     // Find the last user message
     const messages = session.messages
-    let lastUserMessageIndex = -1
-    for (let i = messages.length - 1; i >= 0; i--) {
-      if (messages[i].role === 'user') {
-        lastUserMessageIndex = i
-        break
-      }
-    }
+    const lastUserMessageIndex = messages.findLastIndex((m) => m.role === 'user')
 
     if (lastUserMessageIndex < 0) {
       return

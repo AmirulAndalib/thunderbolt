@@ -198,7 +198,7 @@ const createLocalAgentSession = async (chatId: string, agent: Agent): Promise<Ac
 
   const agentConfig = toAgentConfig(agent)
 
-  let timer: ReturnType<typeof setTimeout>
+  let timer: ReturnType<typeof setTimeout> | undefined
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(
       () =>
@@ -219,7 +219,7 @@ const createLocalAgentSession = async (chatId: string, agent: Agent): Promise<Ac
   try {
     return await Promise.race([connect(), timeout])
   } finally {
-    clearTimeout(timer!)
+    clearTimeout(timer)
   }
 }
 
