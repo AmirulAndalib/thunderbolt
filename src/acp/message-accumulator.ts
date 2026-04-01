@@ -4,7 +4,7 @@ import type { DynamicToolUIPart } from 'ai'
 import { v7 as uuidv7 } from 'uuid'
 import { z } from 'zod'
 
-type SessionUpdate = SessionNotification['update']
+export type SessionUpdate = SessionNotification['update']
 
 type ToolCallState = {
   toolCallId: string

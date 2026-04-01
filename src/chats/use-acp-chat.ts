@@ -1,13 +1,10 @@
-import { createMessageAccumulator, parseMeta, type MessageAccumulator } from '@/acp/message-accumulator'
+import { createMessageAccumulator, parseMeta, type MessageAccumulator, type SessionUpdate } from '@/acp/message-accumulator'
 import { trackEvent } from '@/lib/posthog'
 import type { SaveMessagesFunction, ThunderboltUIMessage } from '@/types'
-import type { SessionNotification } from '@agentclientprotocol/sdk'
 import { v7 as uuidv7 } from 'uuid'
 import { useChatStore } from './chat-store'
 import { ensureAcpConnection } from './create-acp-session'
 import { useCallback, useRef } from 'react'
-
-type SessionUpdate = SessionNotification['update']
 
 export { maxRetries } from './constants'
 
