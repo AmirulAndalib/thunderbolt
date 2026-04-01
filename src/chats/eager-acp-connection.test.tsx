@@ -15,6 +15,21 @@ import { MCPProvider } from '@/lib/mcp-provider'
 import { useHydrateChatStore } from './use-hydrate-chat-store'
 import type { AcpClient } from '@/acp/client'
 
+/**
+ * hydrateChatStore internally calls ky.get() (via discoverAndSeedRemoteAgents)
+ * which uses setTimeout for retry logic. With fake timers globally installed,
+ * we must advance the clock so ky retries don't hang forever.
+ */
+const callHydrate = async (hydrateFn: () => Promise<void>) => {
+  const promise = hydrateFn()
+  await act(async () => {
+    await getClock().runAllAsync()
+  })
+  await act(async () => {
+    await promise
+  })
+}
+
 const createDefaultMode = async () => {
   const db = getDb()
   await db.insert(modesTable).values({
@@ -161,9 +176,7 @@ describe('eager ACP connection', () => {
       { wrapper: TestWrapper },
     )
 
-    await act(async () => {
-      await result.current.hydrateChatStore()
-    })
+    await callHydrate(() => result.current.hydrateChatStore())
 
     const session = getCurrentSession()
     expect(session?.agentConfig.type).toBe('built-in')
@@ -181,9 +194,7 @@ describe('eager ACP connection', () => {
       { wrapper: TestWrapper },
     )
 
-    await act(async () => {
-      await result.current.hydrateChatStore()
-    })
+    await callHydrate(() => result.current.hydrateChatStore())
 
     // Allow fire-and-forget promise to settle (fake timers are active)
     await act(async () => {
@@ -206,9 +217,7 @@ describe('eager ACP connection', () => {
       { wrapper: TestWrapper },
     )
 
-    await act(async () => {
-      await result.current.hydrateChatStore()
-    })
+    await callHydrate(() => result.current.hydrateChatStore())
 
     const session = getCurrentSession()
     expect(session?.isAgentAvailable).toBe(false)
@@ -227,9 +236,7 @@ describe('eager ACP connection', () => {
       { wrapper: TestWrapper },
     )
 
-    await act(async () => {
-      await result.current.hydrateChatStore()
-    })
+    await callHydrate(() => result.current.hydrateChatStore())
 
     // Allow fire-and-forget promise to settle (fake timers are active)
     await act(async () => {
@@ -251,9 +258,7 @@ describe('eager ACP connection', () => {
       { wrapper: TestWrapper },
     )
 
-    await act(async () => {
-      await result.current.hydrateChatStore()
-    })
+    await callHydrate(() => result.current.hydrateChatStore())
 
     // Allow fire-and-forget promise to settle (fake timers are active)
     await act(async () => {

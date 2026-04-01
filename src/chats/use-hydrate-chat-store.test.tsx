@@ -15,6 +15,22 @@ import type { ThunderboltUIMessage } from '@/types'
 import { createElement, type ReactNode } from 'react'
 import { BrowserRouter } from 'react-router'
 import { MCPProvider } from '@/lib/mcp-provider'
+import { getClock } from '@/testing-library'
+
+/**
+ * hydrateChatStore internally calls ky.get() (via discoverAndSeedRemoteAgents)
+ * which uses setTimeout for retry logic. With fake timers globally installed,
+ * we must advance the clock so ky retries don't hang forever.
+ */
+const callHydrate = async (hydrateFn: () => Promise<void>) => {
+  const promise = hydrateFn()
+  await act(async () => {
+    await getClock().runAllAsync()
+  })
+  await act(async () => {
+    await promise
+  })
+}
 
 /**
  * Helper function to create a default mode (required for getSelectedMode)
@@ -219,9 +235,7 @@ describe('useHydrateChatStore', () => {
 
       expect(result.current.isReady).toBe(false)
 
-      await act(async () => {
-        await result.current.hydrateChatStore()
-      })
+      await callHydrate(() => result.current.hydrateChatStore())
 
       expect(result.current.isReady).toBe(true)
     })
@@ -236,9 +250,7 @@ describe('useHydrateChatStore', () => {
         wrapper: TestWrapper,
       })
 
-      await act(async () => {
-        await result.current.hydrateChatStore()
-      })
+      await callHydrate(() => result.current.hydrateChatStore())
 
       const session = getCurrentSession()
       const storeState = useChatStore.getState()
@@ -266,9 +278,7 @@ describe('useHydrateChatStore', () => {
       })
 
       // First hydration
-      await act(async () => {
-        await result.current.hydrateChatStore()
-      })
+      await callHydrate(() => result.current.hydrateChatStore())
 
       const firstState = useChatStore.getState()
       expect(firstState.currentSessionId).toBe(threadId1)
@@ -278,9 +288,7 @@ describe('useHydrateChatStore', () => {
         wrapper: TestWrapper,
       })
 
-      await act(async () => {
-        await result2.current.hydrateChatStore()
-      })
+      await callHydrate(() => result2.current.hydrateChatStore())
 
       const secondState = useChatStore.getState()
       expect(secondState.currentSessionId).toBe(threadId2)
@@ -304,9 +312,7 @@ describe('useHydrateChatStore', () => {
         wrapper: TestWrapper,
       })
 
-      await act(async () => {
-        await result.current.hydrateChatStore()
-      })
+      await callHydrate(() => result.current.hydrateChatStore())
 
       const session = getCurrentSession()
       expect(session?.acpClient).toBeDefined()
@@ -324,9 +330,7 @@ describe('useHydrateChatStore', () => {
         wrapper: TestWrapper,
       })
 
-      await act(async () => {
-        await result.current.hydrateChatStore()
-      })
+      await callHydrate(() => result.current.hydrateChatStore())
 
       const session = getCurrentSession()
       // The session should use the thread's agent, not the global selected agent
@@ -342,9 +346,7 @@ describe('useHydrateChatStore', () => {
         wrapper: TestWrapper,
       })
 
-      await act(async () => {
-        await result.current.hydrateChatStore()
-      })
+      await callHydrate(() => result.current.hydrateChatStore())
 
       const session = getCurrentSession()
       expect(session?.acpClient).toBeDefined()
@@ -363,9 +365,7 @@ describe('useHydrateChatStore', () => {
       })
 
       // First hydrate to set up the store
-      await act(async () => {
-        await result.current.hydrateChatStore()
-      })
+      await callHydrate(() => result.current.hydrateChatStore())
 
       const session = getCurrentSession()
       expect(session?.selectedModel).not.toBeNull()
@@ -418,9 +418,7 @@ describe('useHydrateChatStore', () => {
       })
 
       // Hydrate to set up the store with a model
-      await act(async () => {
-        await result.current.hydrateChatStore()
-      })
+      await callHydrate(() => result.current.hydrateChatStore())
 
       const newMessages: ThunderboltUIMessage[] = [
         createTestMessage({ role: 'user', parts: [{ type: 'text', text: 'Test message' }] }),
