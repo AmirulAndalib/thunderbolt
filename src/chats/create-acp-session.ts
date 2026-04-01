@@ -1,4 +1,4 @@
-import { createAcpClient } from '@/acp/client'
+import { createAcpClient, type AcpClient } from '@/acp/client'
 import { createBuiltInAgent } from '@/acp/built-in-agent'
 import { createInProcessStreams } from '@/acp/streams'
 import { connectToLocalAgent } from '@/acp/local-agent'
@@ -8,7 +8,6 @@ import { handleSessionUpdate } from './use-acp-chat'
 import { useChatStore } from './chat-store'
 import { isAgentAvailableOnPlatform } from '@/lib/platform'
 import type { Agent, Mode, Model } from '@/types'
-import type { AcpClient } from '@/acp/client'
 import type { AgentConfig, AgentSessionState } from '@/acp/types'
 import type { MCPClient } from '@/lib/mcp-provider'
 import type { Stream } from '@agentclientprotocol/sdk'
@@ -65,6 +64,14 @@ const initializeAcpSession = async (stream: Stream, chatId: string): Promise<Acp
 
   await acpClient.initialize()
   const sessionState = await acpClient.createSession()
+
+  // Persist the ACP sessionId on the ChatSession so it survives client replacement.
+  // Only update if the session already exists in the store (built-in agents create
+  // the ACP session before the store session is created).
+  const existingSession = useChatStore.getState().sessions.get(chatId)
+  if (existingSession) {
+    useChatStore.getState().updateSession(chatId, { acpSessionId: sessionState.sessionId })
+  }
 
   return { acpClient, sessionState }
 }
@@ -235,14 +242,89 @@ const createLocalAgentSession = async (chatId: string, agent: Agent): Promise<Ac
 
 /**
  * Create an ACP session for a remote agent (WebSocket transport).
+ * Uses connectWithReconnect for automatic reconnection with session resumption.
  */
-const createRemoteAgentSession = async (chatId: string, agent: Agent): Promise<AcpSessionResult> => {
+const createRemoteAgentSession = (chatId: string, agent: Agent): Promise<AcpSessionResult> => {
   if (!agent.url) {
     throw new Error(`Remote agent "${agent.name}" has no URL configured.`)
   }
 
   const agentConfig = toAgentConfig(agent)
-  const { stream } = await connectToRemoteAgent({ agentConfig })
 
-  return initializeAcpSession(stream, chatId)
+  return new Promise<AcpSessionResult>((resolve, reject) => {
+    let isFirstConnect = true
+
+    connectToRemoteAgent({
+      agentConfig,
+      onStream: (stream) => {
+        if (isFirstConnect) {
+          isFirstConnect = false
+          initializeAcpSession(stream, chatId).then(resolve, reject)
+          return
+        }
+
+        // Reconnect: create a fresh ACP client on the new stream, attempt session/load
+        void handleReconnect(stream, chatId)
+      },
+      onDisconnected: () => {
+        if (isFirstConnect) {
+          isFirstConnect = false
+          reject(new Error(`Failed to connect to agent "${agent.name}" — retries exhausted.`))
+          return
+        }
+
+        const store = useChatStore.getState()
+        store.updateSession(chatId, { acpClient: null })
+        store.setSessionStatus(chatId, 'error', new Error('Connection lost — retries exhausted.'))
+      },
+    })
+  })
+}
+
+/**
+ * Handle WebSocket reconnection by creating a new ACP client and attempting
+ * session resumption via loadSession, falling back to createSession.
+ */
+const handleReconnect = async (stream: Stream, chatId: string) => {
+  const store = useChatStore.getState()
+  const session = store.sessions.get(chatId)
+  if (!session) {
+    return
+  }
+
+  store.setSessionStatus(chatId, 'connecting')
+
+  const acpClient = createAcpClient({
+    stream,
+    onSessionUpdate: (update) => {
+      handleSessionUpdate(chatId, update)
+    },
+  })
+
+  await acpClient.initialize()
+
+  const previousSessionId = session.acpSessionId
+
+  let sessionState: AgentSessionState
+
+  if (acpClient.supportsLoadSession && previousSessionId) {
+    try {
+      sessionState = await acpClient.loadSession(previousSessionId)
+    } catch {
+      // Session not found on agent side — fall back to a fresh session
+      sessionState = await acpClient.createSession()
+    }
+  } else {
+    sessionState = await acpClient.createSession()
+  }
+
+  store.updateSession(chatId, {
+    acpClient,
+    acpSessionId: sessionState.sessionId,
+    availableModes: sessionState.availableModes,
+    currentModeId: sessionState.currentModeId,
+    configOptions: sessionState.configOptions,
+  })
+
+  store.setSessionStatus(chatId, 'ready')
 }

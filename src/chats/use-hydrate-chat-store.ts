@@ -217,6 +217,7 @@ export const useHydrateChatStore = ({
       isAgentAvailable: agentAvailable,
 
       // ACP session state
+      acpSessionId: sessionState.sessionId || null,
       availableModes: sessionState.availableModes,
       currentModeId: sessionState.currentModeId,
       configOptions: sessionState.configOptions,

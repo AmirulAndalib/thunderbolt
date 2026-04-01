@@ -18,6 +18,7 @@ export type ChatSession = {
   isAgentAvailable: boolean
 
   // ACP session state (from capability negotiation)
+  acpSessionId: string | null
   availableModes: SessionMode[]
   currentModeId: string | null
   configOptions: SessionConfigOption[]

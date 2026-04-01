@@ -61,8 +61,17 @@ export const createMockAutomationRun = (overrides?: Partial<AutomationRun>): Aut
 export const createMockAcpClient = (): AcpClient =>
   ({
     connection: {},
+    supportsLoadSession: false,
     initialize: mock(() => Promise.resolve({ protocolVersion: 1, agentInfo: { name: 'Test', version: '1.0.0' } })),
     createSession: mock(() =>
+      Promise.resolve({
+        sessionId: 'test-session',
+        availableModes: [],
+        currentModeId: null,
+        configOptions: [],
+      }),
+    ),
+    loadSession: mock(() =>
       Promise.resolve({
         sessionId: 'test-session',
         availableModes: [],
@@ -174,6 +183,7 @@ export const hydrateStore = (state: {
   acpClient?: AcpClient | null
   agentConfig?: Agent
   isAgentAvailable?: boolean
+  acpSessionId?: string | null
   availableModes?: SessionMode[]
   currentModeId?: string | null
   configOptions?: SessionConfigOption[]
@@ -205,6 +215,7 @@ export const hydrateStore = (state: {
       agentConfig: state.agentConfig ?? defaultTestAgent,
       isAgentAvailable: state.isAgentAvailable ?? true,
 
+      acpSessionId: state.acpSessionId ?? null,
       availableModes: state.availableModes ?? [],
       currentModeId: state.currentModeId ?? null,
       configOptions: state.configOptions ?? [],
