@@ -47,8 +47,11 @@ export const createHaystackWebSocketHandler = (pipelineConfig: HaystackPipelineC
           }
           ws.send(decoder.decode(value))
         }
-      } catch {
-        // Connection closed
+      } catch (error) {
+        const isCloseError = error instanceof TypeError && String(error.message).includes('closed')
+        if (!isCloseError) {
+          console.error('Unexpected error in WebSocket pipe loop:', error)
+        }
       }
     }
     pipeLoop()
