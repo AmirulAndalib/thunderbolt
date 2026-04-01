@@ -1,5 +1,7 @@
-export type { RemoteAgentDescriptor } from '@shared/agent-types'
+import type { RemoteAgentDescriptor } from '@shared/agent-types'
+
+export type { RemoteAgentDescriptor }
 
 export type AgentProvider = {
-  getAgents: () => import('@shared/agent-types').RemoteAgentDescriptor[]
+  getAgents: () => RemoteAgentDescriptor[]
 }
