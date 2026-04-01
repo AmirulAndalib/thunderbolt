@@ -287,4 +287,29 @@ describe('built-in agent via ACP', () => {
     expect(updates[0].sessionUpdate).toBe('agent_thought_chunk')
     expect(updates[1].sessionUpdate).toBe('agent_message_chunk')
   })
+
+  test('advertises loadSession capability', async () => {
+    const { client } = setupAgent()
+    const result = await client.initialize()
+    expect(result.agentCapabilities?.loadSession).toBe(true)
+  })
+
+  test('loadSession restores session with modes and config', async () => {
+    const { client } = setupAgent()
+    await client.initialize()
+    const session = await client.createSession()
+
+    // Load the same session by ID
+    const restored = await client.loadSession(session.sessionId)
+
+    expect(restored.availableModes).toHaveLength(2)
+    expect(restored.configOptions).toHaveLength(1)
+  })
+
+  test('loadSession rejects unknown session ID', async () => {
+    const { client } = setupAgent()
+    await client.initialize()
+
+    await expect(client.loadSession('nonexistent-session')).rejects.toThrow()
+  })
 })

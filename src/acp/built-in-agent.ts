@@ -6,6 +6,8 @@ import type {
   CancelNotification,
   InitializeRequest,
   InitializeResponse,
+  LoadSessionRequest,
+  LoadSessionResponse,
   NewSessionRequest,
   NewSessionResponse,
   PromptRequest,
@@ -16,6 +18,7 @@ import type {
   SetSessionConfigOptionResponse,
   SetSessionModeRequest,
 } from '@agentclientprotocol/sdk'
+import { RequestError } from '@agentclientprotocol/sdk'
 import type { Mode, Model } from '@/types'
 
 type BuiltInAgentDeps = {
@@ -59,14 +62,34 @@ const modelsToConfigOption = (models: Model[], selectedId: string): SessionConfi
  * Create an ACP Agent handler for the built-in Thunderbolt agent.
  * This wraps the existing AI SDK streamText logic behind the ACP protocol.
  */
+type BuiltInSessionState = {
+  modeId: string
+  modelId: string
+}
+
 export const createBuiltInAgent = (deps: BuiltInAgentDeps) => {
   const abortControllers = new Map<string, AbortController>()
+  const sessions = new Map<string, BuiltInSessionState>()
+
+  const buildSessionResponse = () => {
+    const modes = deps.getModes()
+    const models = deps.getModels()
+    const currentModeId = deps.getSelectedModeId()
+    const currentModelId = deps.getSelectedModelId()
+    const sessionModes = modesToSessionModes(modes)
+
+    return {
+      modes: { currentModeId, availableModes: sessionModes },
+      configOptions: [modelsToConfigOption(models, currentModelId)],
+    }
+  }
 
   const agent: (conn: AgentSideConnection) => Agent = (conn) => ({
     initialize: async (_params: InitializeRequest): Promise<InitializeResponse> => ({
       agentInfo: { name: 'Thunderbolt', version: '1.0.0' },
       protocolVersion: 1,
       agentCapabilities: {
+        loadSession: true,
         promptCapabilities: {
           image: true,
           audio: false,
@@ -78,21 +101,23 @@ export const createBuiltInAgent = (deps: BuiltInAgentDeps) => {
     authenticate: async (_params: AuthenticateRequest): Promise<AuthenticateResponse> => ({}),
 
     newSession: async (_params: NewSessionRequest): Promise<NewSessionResponse> => {
-      const modes = deps.getModes()
-      const models = deps.getModels()
-      const currentModeId = deps.getSelectedModeId()
-      const currentModelId = deps.getSelectedModelId()
+      const sessionId = crypto.randomUUID()
+      const response = buildSessionResponse()
 
-      const sessionModes = modesToSessionModes(modes)
+      sessions.set(sessionId, {
+        modeId: response.modes.currentModeId,
+        modelId: deps.getSelectedModelId(),
+      })
 
-      return {
-        sessionId: crypto.randomUUID(),
-        modes: {
-          currentModeId,
-          availableModes: sessionModes,
-        },
-        configOptions: [modelsToConfigOption(models, currentModelId)],
+      return { sessionId, ...response }
+    },
+
+    loadSession: async (params: LoadSessionRequest): Promise<LoadSessionResponse> => {
+      const session = sessions.get(params.sessionId)
+      if (!session) {
+        throw RequestError.resourceNotFound(params.sessionId)
       }
+      return buildSessionResponse()
     },
 
     setSessionMode: async (params: SetSessionModeRequest): Promise<void> => {
