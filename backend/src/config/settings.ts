@@ -176,6 +176,14 @@ export const getCorsMethodsList = (settings: Settings): string[] => {
 import type { HaystackPipelineConfig } from '@/haystack/types'
 export type { HaystackPipelineConfig }
 
+const haystackPipelineConfigSchema = z.object({
+  slug: z.string(),
+  name: z.string(),
+  pipelineName: z.string(),
+  pipelineId: z.string(),
+  icon: z.string().optional(),
+})
+
 /**
  * Get configured Haystack pipelines. Supports either:
  * - HAYSTACK_PIPELINES: JSON array of pipeline configs
@@ -188,8 +196,14 @@ export const getHaystackPipelines = (settings: Settings): HaystackPipelineConfig
 
   if (settings.haystackPipelines) {
     try {
-      return JSON.parse(settings.haystackPipelines)
+      const parsed = z.array(haystackPipelineConfigSchema).safeParse(JSON.parse(settings.haystackPipelines))
+      if (!parsed.success) {
+        console.warn('HAYSTACK_PIPELINES config is invalid, ignoring:', parsed.error.message)
+        return []
+      }
+      return parsed.data
     } catch {
+      console.warn('HAYSTACK_PIPELINES is not valid JSON, ignoring')
       return []
     }
   }
