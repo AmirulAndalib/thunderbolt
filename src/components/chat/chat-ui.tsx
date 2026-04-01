@@ -16,7 +16,7 @@ type ChatUIProps = {
   saveMessages?: SaveMessagesFunction
 }
 
-export default function ChatUI({ saveMessages }: ChatUIProps) {
+const ChatUI = ({ saveMessages }: ChatUIProps) => {
   const { messages, agentConfig } = useCurrentChatSession()
   const isBuiltInAgent = agentConfig.type === 'built-in'
 
@@ -144,3 +144,5 @@ export default function ChatUI({ saveMessages }: ChatUIProps) {
     </div>
   )
 }
+
+export default ChatUI

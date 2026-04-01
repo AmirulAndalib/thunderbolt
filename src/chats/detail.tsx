@@ -17,13 +17,15 @@ const ChatHydrateHandler = ({ id, isNew }: ChatHydrateHandlerProps) => {
 
   useHandleIntegrationCompletion({ saveMessages })
 
+  // Re-hydrate when `id` changes (navigating to a different chat).
+  // `hydrateChatStore` is intentionally excluded from deps — it's a stable function
+  // but would cause double-hydration if included, since it closes over `id`.
   useEffect(() => {
     hydrateChatStore().catch((err: unknown) => {
       console.error('Failed to hydrate chat store:', err)
       setError(err instanceof Error ? err : new Error(String(err)))
     })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id])
+  }, [id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (error) {
     return (
@@ -47,7 +49,7 @@ const ChatHydrateHandler = ({ id, isNew }: ChatHydrateHandlerProps) => {
   )
 }
 
-export default function ChatDetailPage() {
+const ChatDetailPage = () => {
   const params = useParams()
   const location = useLocation()
 
@@ -63,3 +65,5 @@ export default function ChatDetailPage() {
 
   return <ChatHydrateHandler key={id} id={id} isNew={isNew} />
 }
+
+export default ChatDetailPage
