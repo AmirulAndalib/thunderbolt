@@ -1,4 +1,39 @@
+import { z } from 'zod'
 import type { DeepsetResultPayload, DeepsetSSEEvent, HaystackDocumentMeta, HaystackReferenceMeta } from './types'
+
+const deltaEventSchema = z.object({
+  type: z.literal('delta'),
+  delta: z.object({ text: z.string() }),
+})
+
+const resultEventSchema = z.object({
+  type: z.literal('result'),
+  result: z.unknown(),
+})
+
+const errorEventSchema = z.object({
+  type: z.literal('error'),
+  message: z.string().optional(),
+})
+
+const sseEventSchema = z.union([deltaEventSchema, resultEventSchema, errorEventSchema])
+
+const parseSsePayload = (json: string): DeepsetSSEEvent | null => {
+  const raw = JSON.parse(json) as unknown
+  const parsed = sseEventSchema.safeParse(raw)
+  if (!parsed.success) {
+    return null
+  }
+
+  const event = parsed.data
+  if (event.type === 'delta') {
+    return { type: 'delta', delta: event.delta.text }
+  }
+  if (event.type === 'result') {
+    return { type: 'result', result: event.result as DeepsetResultPayload }
+  }
+  return { type: 'error', error: event.message ?? 'Unknown error' }
+}
 
 /**
  * Parse SSE events from a ReadableStream.
@@ -34,17 +69,9 @@ export async function* parseSSE(body: ReadableStream<Uint8Array>): AsyncGenerato
         }
 
         try {
-          const parsed = JSON.parse(json) as Record<string, unknown>
-
-          if (parsed.type === 'delta' && parsed.delta) {
-            const delta = parsed.delta as Record<string, unknown>
-            if (typeof delta.text === 'string') {
-              yield { type: 'delta', delta: delta.text }
-            }
-          } else if (parsed.type === 'result' && parsed.result) {
-            yield { type: 'result', result: parsed.result as DeepsetResultPayload }
-          } else if (parsed.type === 'error') {
-            yield { type: 'error', error: (parsed.message as string) ?? 'Unknown error' }
+          const event = parseSsePayload(json)
+          if (event) {
+            yield event
           }
         } catch {
           // Skip malformed JSON lines

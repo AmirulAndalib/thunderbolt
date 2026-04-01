@@ -131,8 +131,8 @@ export class HaystackClient {
       const url = `${this.baseApiUrl}/pipelines/${this.config.pipelineName}`
       const response = await this.fetchFn(url, { method: 'GET', headers: this.headers })
       if (response.ok) {
-        const data = (await response.json()) as { output_type?: string }
-        this.cachedOutputType = data.output_type === 'DOCUMENT' ? 'DOCUMENT' : 'CHAT'
+        const raw = (await response.json()) as { output_type?: unknown }
+        this.cachedOutputType = raw.output_type === 'DOCUMENT' ? 'DOCUMENT' : 'CHAT'
       }
     } catch {
       // Fall back to CHAT if the metadata endpoint is unavailable
@@ -193,7 +193,7 @@ export class HaystackClient {
       signal,
     })
 
-    const data = (await response.json()) as { results?: [DeepsetResultPayload] }
+    const data = (await response.json()) as { results?: DeepsetResultPayload[] }
     return data.results?.[0] ?? { answers: [], documents: [] }
   }
 
