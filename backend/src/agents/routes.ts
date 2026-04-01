@@ -15,12 +15,12 @@ const getWsBaseUrl = (request: Request): string => {
 export const createAgentsRoutes = () => {
   const settings = getSettings()
   const pipelines = getHaystackPipelines(settings)
-  const enabledIds = getEnabledAgentIds(settings)
 
   const router = new Elysia({ prefix: '/agents' })
 
   router.get('/', ({ request }) => {
     const wsBaseUrl = getWsBaseUrl(request)
+    const enabledIds = getEnabledAgentIds(getSettings())
 
     const providers: AgentProvider[] = [...(pipelines.length > 0 ? [createHaystackProvider(pipelines, wsBaseUrl)] : [])]
 
