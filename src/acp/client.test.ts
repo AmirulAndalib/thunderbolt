@@ -24,6 +24,7 @@ const createTestSetup = (overrides?: {
       initialize: async () => ({
         protocolVersion: 1,
         agentInfo: { name: 'Test', version: '1.0.0' },
+        agentCapabilities: { loadSession: true },
       }),
       authenticate: async () => ({}),
       newSession: async () => ({
@@ -46,6 +47,30 @@ const createTestSetup = (overrides?: {
           },
         ],
       }),
+      loadSession: async (params: { sessionId: string }) => {
+        if (params.sessionId !== 'session-1') {
+          throw new Error('Session not found')
+        }
+        return {
+          modes: {
+            currentModeId: 'mode-a',
+            availableModes: [
+              { id: 'mode-a', name: 'Mode A' },
+              { id: 'mode-b', name: 'Mode B' },
+            ],
+          },
+          configOptions: [
+            {
+              id: 'model',
+              name: 'Model',
+              type: 'select' as const,
+              category: 'model',
+              currentValue: 'model-1',
+              options: [{ value: 'model-1', name: 'Model 1' }],
+            },
+          ],
+        }
+      },
       setSessionMode: async () => {
         // Notify mode change
         await conn.sessionUpdate({
@@ -299,5 +324,38 @@ describe('AcpClient', () => {
     // The configOptions should reflect what the agent returned
     const state = client.getSessionState()
     expect(state).toBeDefined()
+  })
+
+  test('supportsLoadSession reflects agent capability', async () => {
+    const { client } = createTestSetup()
+
+    // Before initialize, no capability info is available
+    expect(client.supportsLoadSession).toBe(false)
+
+    await client.initialize()
+    expect(client.supportsLoadSession).toBe(true)
+  })
+
+  test('loadSession restores session state', async () => {
+    const { client } = createTestSetup()
+    await client.initialize()
+
+    const restored = await client.loadSession('session-1')
+
+    expect(restored.sessionId).toBe('session-1')
+    expect(restored.availableModes).toHaveLength(2)
+    expect(restored.currentModeId).toBe('mode-a')
+    expect(restored.configOptions).toHaveLength(1)
+
+    // getSessionState should also be updated
+    const state = client.getSessionState()
+    expect(state?.sessionId).toBe('session-1')
+  })
+
+  test('loadSession rejects unknown session ID', async () => {
+    const { client } = createTestSetup()
+    await client.initialize()
+
+    await expect(client.loadSession('nonexistent')).rejects.toThrow()
   })
 })

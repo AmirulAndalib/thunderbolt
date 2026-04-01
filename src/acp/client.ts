@@ -6,6 +6,7 @@ import {
   type RequestPermissionRequest,
   type RequestPermissionResponse,
   type Stream,
+  type InitializeResponse,
 } from '@agentclientprotocol/sdk'
 import type { AgentSessionState } from './types'
 
@@ -53,6 +54,8 @@ export const createAcpClient = ({ stream, onSessionUpdate, onPermissionRequest }
 
   const connection = new ClientSideConnection(client, stream)
 
+  let initializeResult: InitializeResponse | null = null
+
   const requireSession = (): AgentSessionState => {
     if (!sessionState) {
       throw new Error('No active session. Call createSession() first.')
@@ -63,6 +66,10 @@ export const createAcpClient = ({ stream, onSessionUpdate, onPermissionRequest }
   return {
     connection,
 
+    get supportsLoadSession() {
+      return initializeResult?.agentCapabilities?.loadSession === true
+    },
+
     initialize: async () => {
       const result = await connection.initialize({
         clientInfo: { name: 'Thunderbolt', version: '1.0.0' },
@@ -72,6 +79,7 @@ export const createAcpClient = ({ stream, onSessionUpdate, onPermissionRequest }
           terminal: false,
         },
       })
+      initializeResult = result
       return result
     },
 
@@ -82,6 +90,22 @@ export const createAcpClient = ({ stream, onSessionUpdate, onPermissionRequest }
       })
       sessionState = {
         sessionId: result.sessionId,
+        availableModes: result.modes?.availableModes ?? [],
+        currentModeId: result.modes?.currentModeId ?? null,
+        configOptions: result.configOptions ?? [],
+      }
+      return sessionState
+    },
+
+    /** Resume a previously established session by ID. */
+    loadSession: async (sessionId: string): Promise<AgentSessionState> => {
+      const result = await connection.loadSession({
+        sessionId,
+        cwd: '.',
+        mcpServers: [],
+      })
+      sessionState = {
+        sessionId,
         availableModes: result.modes?.availableModes ?? [],
         currentModeId: result.modes?.currentModeId ?? null,
         configOptions: result.configOptions ?? [],
