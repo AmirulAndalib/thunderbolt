@@ -1,6 +1,6 @@
 import type { SessionNotification } from '@agentclientprotocol/sdk'
 import type { HaystackDocumentMeta, HaystackReferenceMeta, ThunderboltUIMessage, UIMessageMetadata } from '@/types'
-import type { DynamicToolUIPart } from 'ai'
+import type { ToolUIPart } from 'ai'
 import { v7 as uuidv7 } from 'uuid'
 import { z } from 'zod'
 
@@ -9,6 +9,7 @@ export type SessionUpdate = SessionNotification['update']
 type ToolCallState = {
   toolCallId: string
   toolName: string
+  title?: string
   status: 'pending' | 'in_progress' | 'completed' | 'failed'
   args: Record<string, unknown>
   result: unknown
@@ -74,11 +75,11 @@ export const createMessageAccumulator = (messageId?: string) => {
     // Add tool call parts
     for (const tc of toolCalls.values()) {
       const base = {
-        type: 'dynamic-tool' as const,
+        type: `tool-${tc.toolName}` as const,
         toolCallId: tc.toolCallId,
-        toolName: tc.toolName,
+        title: tc.title,
       }
-      const part: DynamicToolUIPart =
+      const part: ToolUIPart =
         tc.status === 'completed'
           ? { ...base, state: 'output-available' as const, input: tc.args, output: tc.result }
           : tc.status === 'failed'
@@ -154,6 +155,7 @@ export const createMessageAccumulator = (messageId?: string) => {
         toolCalls.set(update.toolCallId, {
           toolCallId: update.toolCallId,
           toolName: update.title,
+          title: update.title,
           status: (update.status as ToolCallState['status']) ?? 'pending',
           args: {},
           result: undefined,

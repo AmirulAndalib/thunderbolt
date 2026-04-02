@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import type { DynamicToolUIPart } from 'ai'
+import type { ToolUIPart } from 'ai'
 import { createMessageAccumulator } from './message-accumulator'
 
 describe('createMessageAccumulator', () => {
@@ -54,9 +54,9 @@ describe('createMessageAccumulator', () => {
     })
 
     const msg1 = acc.buildMessage()
-    const toolPart = msg1.parts.find((p) => p.type === 'dynamic-tool') as DynamicToolUIPart | undefined
+    const toolPart = msg1.parts.find((p) => p.type === 'tool-get_weather') as ToolUIPart | undefined
     expect(toolPart).toBeDefined()
-    expect(toolPart?.toolName).toBe('get_weather')
+    expect(toolPart?.title).toBe('get_weather')
 
     // Update with result
     acc.handleUpdate({
@@ -67,7 +67,7 @@ describe('createMessageAccumulator', () => {
     })
 
     const msg2 = acc.buildMessage()
-    const completedToolPart = msg2.parts.find((p) => p.type === 'dynamic-tool') as DynamicToolUIPart | undefined
+    const completedToolPart = msg2.parts.find((p) => p.type === 'tool-get_weather') as ToolUIPart | undefined
     expect(completedToolPart).toBeDefined()
     expect(completedToolPart?.state).toBe('output-available')
     if (completedToolPart?.state === 'output-available') {
@@ -106,7 +106,7 @@ describe('createMessageAccumulator', () => {
     const msg = acc.buildMessage()
     expect(msg.parts).toHaveLength(3) // reasoning, tool, text
     expect(msg.parts[0].type).toBe('reasoning')
-    expect(msg.parts[1].type).toBe('dynamic-tool')
+    expect(msg.parts[1].type).toBe('tool-web_search')
     expect(msg.parts[2].type).toBe('text')
   })
 
