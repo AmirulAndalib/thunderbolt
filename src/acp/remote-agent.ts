@@ -1,4 +1,5 @@
 import type { Stream } from '@agentclientprotocol/sdk'
+import { HTTPError } from 'ky'
 import type { AgentConfig } from './types'
 import { connectWithReconnect, createWebSocketStream, type WebSocketLike } from './websocket-stream'
 import { fetchWsTicket, appendTicketToUrl } from './ws-ticket'
@@ -20,9 +21,13 @@ const ticketedWebSocketFactory = async (url: string): Promise<WebSocketLike> => 
   try {
     const ticket = await fetchWsTicket()
     return new WebSocket(appendTicketToUrl(url, ticket)) as unknown as WebSocketLike
-  } catch {
-    // If ticket fetch fails (e.g., not logged in), connect without ticket
-    return new WebSocket(url) as unknown as WebSocketLike
+  } catch (error) {
+    // Only fall back to unauthenticated connection for auth errors (user not logged in).
+    // Other errors (network failures, 5xx) should propagate so the connection fails loudly.
+    if (error instanceof HTTPError && (error.response.status === 401 || error.response.status === 403)) {
+      return new WebSocket(url) as unknown as WebSocketLike
+    }
+    throw error
   }
 }
 
