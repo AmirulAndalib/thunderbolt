@@ -26,7 +26,6 @@ export const MCPProvider = ({ children }: { children: ReactNode }) => {
   const [servers, setServers] = useState<McpServerConnection[]>([])
   const clientRefs = useRef<Map<string, McpClient>>(new Map())
   const transportRefs = useRef<Map<string, { close(): Promise<void> }>>(new Map())
-  const authProviderRefs = useRef<Map<string, McpOAuthClientProvider>>(new Map())
   const retryTimeouts = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
   const serversRef = useRef<McpServerConnection[]>([])
   const credentialStoreRef = useRef(createCredentialStore(db))
@@ -50,9 +49,7 @@ export const MCPProvider = ({ children }: { children: ReactNode }) => {
       //   The error is expected — on return, useMcpOAuthCallback exchanges the code.
       // On desktop/mobile: waitForAuthCode captures the code, finishAuth exchanges it.
       if (authProvider && err instanceof Error && err.message.includes('Unauthorized')) {
-        // All platforms: don't redirect automatically. Store the auth provider
-        // so the "Authorize" button on the server card can trigger the redirect.
-        authProviderRefs.current.set(config.id, authProvider as McpOAuthClientProvider)
+        await transport.close()
         setServers((prev) =>
           prev.map((s) =>
             s.id === config.id
@@ -241,7 +238,6 @@ export const MCPProvider = ({ children }: { children: ReactNode }) => {
         return { error: 'Server does not require OAuth' } as const
       }
 
-      authProviderRefs.current.set(serverId, provider)
       transportRefs.current.set(serverId, result.transport)
 
       // This triggers OAuth discovery → redirectToAuthorization (stores pendingAuthUrl) → throws
@@ -289,6 +285,7 @@ export const MCPProvider = ({ children }: { children: ReactNode }) => {
       await disconnectServer(serverId)
       await connectServer(server, 0)
     } catch (err) {
+      await disconnectServer(serverId)
       const message = err instanceof Error ? err.message : 'Authorization failed'
       setServers((prev) =>
         prev.map((s) =>
