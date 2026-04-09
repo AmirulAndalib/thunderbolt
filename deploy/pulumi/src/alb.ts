@@ -83,5 +83,5 @@ export const createAlb = ({ name, vpcId, publicSubnetIds, albSgId }: AlbArgs) =>
     actions: [{ type: 'forward', targetGroupArn: powersyncTg.arn }],
   })
 
-  return { alb, frontendTg, backendTg, keycloakTg, powersyncTg }
+  return { alb, listener, frontendTg, backendTg, keycloakTg, powersyncTg }
 }

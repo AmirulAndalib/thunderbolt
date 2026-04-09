@@ -40,7 +40,7 @@ backend:
 postgres:
   image:
     repository: postgres
-    tag: 18-alpine
+    tag: 17-alpine
   storage: 5Gi
   credentials:
     user: postgres

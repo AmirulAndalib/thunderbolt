@@ -66,7 +66,7 @@ if (platform === 'k8s') {
   const { cluster, logGroup } = createCluster(name)
   const { services: discoveryServices } = createServiceDiscovery(name, vpc.id)
 
-  const { alb, frontendTg, backendTg, keycloakTg, powersyncTg } = createAlb({
+  const { alb, listener, frontendTg, backendTg, keycloakTg, powersyncTg } = createAlb({
     name,
     vpcId: vpc.id,
     publicSubnetIds: publicSubnets.map((s) => s.id),
@@ -86,6 +86,7 @@ if (platform === 'k8s') {
     secrets,
     ghcrToken: config.getSecret('ghcrToken'),
     albDnsName: alb.dnsName,
+    albListener: listener,
     targetGroups: {
       frontend: frontendTg,
       backend: backendTg,

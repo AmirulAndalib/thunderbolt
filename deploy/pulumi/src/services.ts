@@ -30,6 +30,7 @@ type ServiceArgs = {
   secrets: Secrets
   ghcrToken?: pulumi.Output<string>
   albDnsName: pulumi.Input<string>
+  albListener: aws.lb.Listener
   targetGroups: {
     frontend: aws.lb.TargetGroup
     backend: aws.lb.TargetGroup
@@ -268,7 +269,7 @@ export const createServices = (args: ServiceArgs) => {
     loadBalancers: [
       { targetGroupArn: args.targetGroups.powersync.arn, containerName: 'powersync', containerPort: 8080 },
     ],
-  })
+  }, { dependsOn: [args.albListener] })
 
   // --- Keycloak ---
   const kcTaskDef = new aws.ecs.TaskDefinition(`${name}-kc-task`, {
@@ -279,26 +280,24 @@ export const createServices = (args: ServiceArgs) => {
     memory: '2048',
     executionRoleArn: execRoleArn,
     taskRoleArn,
-    containerDefinitions: pulumi.all([args.albDnsName, args.secrets.keycloakAdminPassword]).apply(([dns, kcPassword]) =>
-      JSON.stringify([
-        {
-          name: 'keycloak',
-          image: args.images.keycloak,
-          essential: true,
-          command: ['start-dev', '--import-realm'],
-          environment: [
-            { name: 'KC_BOOTSTRAP_ADMIN_USERNAME', value: 'admin' },
-            { name: 'KC_BOOTSTRAP_ADMIN_PASSWORD', value: kcPassword },
-            { name: 'KC_HTTP_PORT', value: '8080' },
-            { name: 'KC_HOSTNAME_URL', value: `http://${dns}` },
-            { name: 'KC_HTTP_RELATIVE_PATH', value: '/auth' },
-          ],
-          portMappings: [{ containerPort: 8080 }],
-          logConfiguration: logConfig('keycloak'),
-          ...(repositoryCredentials && { repositoryCredentials }),
-        },
-      ]),
-    ),
+    containerDefinitions: pulumi.jsonStringify([
+      {
+        name: 'keycloak',
+        image: args.images.keycloak,
+        essential: true,
+        command: ['start-dev', '--import-realm'],
+        environment: [
+          { name: 'KC_BOOTSTRAP_ADMIN_USERNAME', value: 'admin' },
+          { name: 'KC_BOOTSTRAP_ADMIN_PASSWORD', value: args.secrets.keycloakAdminPassword },
+          { name: 'KC_HTTP_PORT', value: '8080' },
+          { name: 'KC_HOSTNAME_URL', value: pulumi.interpolate`http://${args.albDnsName}` },
+          { name: 'KC_HTTP_RELATIVE_PATH', value: '/auth' },
+        ],
+        portMappings: [{ containerPort: 8080 }],
+        logConfiguration: logConfig('keycloak'),
+        ...(repositoryCredentials && { repositoryCredentials }),
+      },
+    ]),
   })
 
   const kcService = new aws.ecs.Service(`${name}-kc-svc`, {
@@ -314,7 +313,7 @@ export const createServices = (args: ServiceArgs) => {
     loadBalancers: [
       { targetGroupArn: args.targetGroups.keycloak.arn, containerName: 'keycloak', containerPort: 8080 },
     ],
-  })
+  }, { dependsOn: [args.albListener] })
 
   // --- Backend ---
   const beTaskDef = new aws.ecs.TaskDefinition(`${name}-be-task`, {
@@ -325,40 +324,36 @@ export const createServices = (args: ServiceArgs) => {
     memory: '2048',
     executionRoleArn: execRoleArn,
     taskRoleArn,
-    containerDefinitions: pulumi
-      .all([args.albDnsName, args.secrets.postgresPassword, args.secrets.oidcClientSecret, args.secrets.powersyncJwtSecret])
-      .apply(([dns, pgPassword, oidcSecret, psSecret]) =>
-        JSON.stringify([
-          {
-            name: 'backend',
-            image: args.images.backend,
-            essential: true,
-            environment: [
-              { name: 'NODE_ENV', value: 'production' },
-              { name: 'PORT', value: '8000' },
-              { name: 'AUTH_MODE', value: 'oidc' },
-              { name: 'WAITLIST_ENABLED', value: 'false' },
-              { name: 'DATABASE_DRIVER', value: 'postgres' },
-              { name: 'DATABASE_URL', value: `postgresql://postgres:${pgPassword}@postgres.thunderbolt.local:5432/postgres` },
-              { name: 'OIDC_ISSUER', value: `http://${dns}/auth/realms/thunderbolt` },
-              { name: 'OIDC_CLIENT_ID', value: 'thunderbolt-app' },
-              { name: 'OIDC_CLIENT_SECRET', value: oidcSecret },
-              { name: 'BETTER_AUTH_URL', value: `http://${dns}` },
-              { name: 'APP_URL', value: `http://${dns}` },
-              { name: 'TRUSTED_ORIGINS', value: `http://${dns}` },
-              { name: 'CORS_ORIGINS', value: `http://${dns}` },
-              { name: 'CORS_ORIGIN_REGEX', value: '' },
-              { name: 'POWERSYNC_URL', value: `http://${dns}/powersync` },
-              { name: 'POWERSYNC_JWT_SECRET', value: psSecret },
-              { name: 'POWERSYNC_JWT_KID', value: 'enterprise-powersync' },
-              { name: 'RATE_LIMIT_ENABLED', value: 'true' },
-            ],
-            portMappings: [{ containerPort: 8000 }],
-            logConfiguration: logConfig('backend'),
-            ...(repositoryCredentials && { repositoryCredentials }),
-          },
-        ]),
-      ),
+    containerDefinitions: pulumi.jsonStringify([
+      {
+        name: 'backend',
+        image: args.images.backend,
+        essential: true,
+        environment: [
+          { name: 'NODE_ENV', value: 'production' },
+          { name: 'PORT', value: '8000' },
+          { name: 'AUTH_MODE', value: 'oidc' },
+          { name: 'WAITLIST_ENABLED', value: 'false' },
+          { name: 'DATABASE_DRIVER', value: 'postgres' },
+          { name: 'DATABASE_URL', value: pulumi.interpolate`postgresql://postgres:${args.secrets.postgresPassword}@postgres.thunderbolt.local:5432/postgres` },
+          { name: 'OIDC_ISSUER', value: pulumi.interpolate`http://${args.albDnsName}/auth/realms/thunderbolt` },
+          { name: 'OIDC_CLIENT_ID', value: 'thunderbolt-app' },
+          { name: 'OIDC_CLIENT_SECRET', value: args.secrets.oidcClientSecret },
+          { name: 'BETTER_AUTH_URL', value: pulumi.interpolate`http://${args.albDnsName}` },
+          { name: 'APP_URL', value: pulumi.interpolate`http://${args.albDnsName}` },
+          { name: 'TRUSTED_ORIGINS', value: pulumi.interpolate`http://${args.albDnsName}` },
+          { name: 'CORS_ORIGINS', value: pulumi.interpolate`http://${args.albDnsName}` },
+          { name: 'CORS_ORIGIN_REGEX', value: '' },
+          { name: 'POWERSYNC_URL', value: pulumi.interpolate`http://${args.albDnsName}/powersync` },
+          { name: 'POWERSYNC_JWT_SECRET', value: args.secrets.powersyncJwtSecret },
+          { name: 'POWERSYNC_JWT_KID', value: 'enterprise-powersync' },
+          { name: 'RATE_LIMIT_ENABLED', value: 'true' },
+        ],
+        portMappings: [{ containerPort: 8000 }],
+        logConfiguration: logConfig('backend'),
+        ...(repositoryCredentials && { repositoryCredentials }),
+      },
+    ]),
   })
 
   const beService = new aws.ecs.Service(`${name}-be-svc`, {
@@ -374,7 +369,7 @@ export const createServices = (args: ServiceArgs) => {
     loadBalancers: [
       { targetGroupArn: args.targetGroups.backend.arn, containerName: 'backend', containerPort: 8000 },
     ],
-  })
+  }, { dependsOn: [args.albListener] })
 
   // --- Frontend ---
   const feTaskDef = new aws.ecs.TaskDefinition(`${name}-fe-task`, {
@@ -410,7 +405,7 @@ export const createServices = (args: ServiceArgs) => {
     loadBalancers: [
       { targetGroupArn: args.targetGroups.frontend.arn, containerName: 'frontend', containerPort: 80 },
     ],
-  })
+  }, { dependsOn: [args.albListener] })
 
   return { pgService, mongoService, mongoInit, psService, kcService, beService, feService }
 }

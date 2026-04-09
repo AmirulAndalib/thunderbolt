@@ -1,3 +1,0 @@
-config:
-  thunderbolt-enterprise:version: 0.1.82
-  thunderbolt-enterprise:platform: fargate
