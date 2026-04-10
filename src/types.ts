@@ -26,6 +26,7 @@ import type { DocumentMeta, DocumentReference } from '../shared/document-types'
 
 export type InitData = {
   db: AnyDrizzleDatabase
+  cloudUrl: string
   tray: TrayIcon | undefined
   window: Window | undefined
   posthogClient: PostHog | null

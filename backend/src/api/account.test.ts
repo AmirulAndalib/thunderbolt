@@ -1,18 +1,45 @@
 import { createAuth } from '@/auth/auth'
-import { user } from '@/db/auth-schema'
+import { session as sessionTable, user } from '@/db/auth-schema'
+import { envelopesTable } from '@/db/encryption-schema'
 import { chatThreadsTable, devicesTable, settingsTable, tasksTable } from '@/db/schema'
 import { createTestDb } from '@/test-utils/db'
+import { createHmac } from 'crypto'
 import { eq } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { Elysia } from 'elysia'
 import { createAccountRoutes } from './account'
 
+const betterAuthSecret = 'better-auth-secret-12345678901234567890'
+const signToken = (token: string): string => {
+  const sig = createHmac('sha256', betterAuthSecret).update(token).digest('base64')
+  return `${token}.${sig}`
+}
+
+/**
+ * Unique-ID strategy for PGlite + nested transactions:
+ *
+ * The revoke endpoint calls database.transaction() internally. In PGlite's
+ * single-connection model this commits the outer test transaction (started by
+ * createTestDb's BEGIN), so ROLLBACK in afterEach becomes a no-op and rows persist.
+ * CI runs each file 5× (test:backend:5x), so the second run would hit
+ * unique-constraint violations without unique IDs.
+ *
+ * Fix: p() prefixes every ID with a globalThis counter that survives module re-evaluation
+ * (bun's --rerun-each reloads the module, resetting module-scope variables).
+ */
+const counterKey = Symbol.for('account-test-runId')
+;(globalThis as Record<symbol, number>)[counterKey] ??= 0
+
 describe('Account API', () => {
   let app: ReturnType<typeof createAccountRoutes>
   let db: Awaited<ReturnType<typeof createTestDb>>['db']
   let cleanup: () => Promise<void>
+  /** Prefix IDs with the current runId — see top-of-file comment for why. */
+  let p: (id: string) => string
 
   beforeEach(async () => {
+    const rid = ++(globalThis as Record<symbol, number>)[counterKey]
+    p = (id: string) => `${rid}-${id}`
     const testEnv = await createTestDb()
     db = testEnv.db
     cleanup = testEnv.cleanup
@@ -79,7 +106,7 @@ describe('Account API', () => {
       const response = await app.handle(
         new Request('http://localhost/v1/account', {
           method: 'DELETE',
-          headers: { Authorization: 'Bearer bearer-token-full-delete' },
+          headers: { Authorization: `Bearer ${signToken('bearer-token-full-delete')}` },
         }),
       )
 
@@ -142,7 +169,7 @@ describe('Account API', () => {
       const response = await app.handle(
         new Request('http://localhost/v1/account', {
           method: 'DELETE',
-          headers: { Authorization: 'Bearer bearer-token-cascade-delete' },
+          headers: { Authorization: `Bearer ${signToken('bearer-token-cascade-delete')}` },
         }),
       )
 
@@ -162,6 +189,205 @@ describe('Account API', () => {
 
       const threadsLeft = await db.select().from(chatThreadsTable).where(eq(chatThreadsTable.userId, userId))
       expect(threadsLeft).toHaveLength(0)
+    })
+  })
+
+  describe('POST /v1/account/devices/:id/revoke', () => {
+    const createUserAndSession = async (userId: string, token: string) => {
+      const now = new Date()
+      const expiresAt = new Date(now.getTime() + 3600 * 1000)
+
+      await db.insert(user).values({
+        id: userId,
+        name: 'Test User',
+        email: `${userId}@example.com`,
+        emailVerified: true,
+        createdAt: now,
+        updatedAt: now,
+      })
+
+      await db.insert(sessionTable).values({
+        id: `session-${userId}`,
+        expiresAt,
+        token,
+        createdAt: now,
+        updatedAt: now,
+        userId,
+      })
+
+      return now
+    }
+
+    it('returns 401 without auth', async () => {
+      const response = await app.handle(
+        new Request('http://localhost/v1/account/devices/some-device/revoke', {
+          method: 'POST',
+        }),
+      )
+      expect(response.status).toBe(401)
+    })
+
+    it('returns 401 with invalid token', async () => {
+      const response = await app.handle(
+        new Request('http://localhost/v1/account/devices/some-device/revoke', {
+          method: 'POST',
+          headers: { Authorization: 'Bearer bogus-token' },
+        }),
+      )
+      expect(response.status).toBe(401)
+    })
+
+    it('returns 204 and revokes device + deletes envelope', async () => {
+      const userId = p('revoke-user')
+      const token = p('revoke-token')
+      const deviceId = p('device-to-revoke')
+      const now = await createUserAndSession(userId, token)
+
+      await db.insert(devicesTable).values({
+        id: deviceId,
+        userId,
+        name: 'My Device',
+        lastSeen: now,
+        createdAt: now,
+        trusted: true,
+      })
+
+      await db.insert(envelopesTable).values({
+        deviceId,
+        userId,
+        wrappedCk: 'wrapped-key-data',
+        updatedAt: now,
+      })
+
+      const response = await app.handle(
+        new Request(`http://localhost/v1/account/devices/${deviceId}/revoke`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${signToken(token)}` },
+        }),
+      )
+
+      expect(response.status).toBe(204)
+
+      const [device] = await db.select().from(devicesTable).where(eq(devicesTable.id, deviceId))
+      expect(device.revokedAt).not.toBeNull()
+
+      const envelopes = await db.select().from(envelopesTable).where(eq(envelopesTable.deviceId, deviceId))
+      expect(envelopes).toHaveLength(0)
+    })
+
+    it('does not revoke device belonging to different user', async () => {
+      const userAId = p('user-a-revoke')
+      const userBId = p('user-b-revoke')
+      const tokenA = p('token-user-a')
+      const deviceId = p('device-user-b')
+
+      await createUserAndSession(userAId, tokenA)
+      const now = await createUserAndSession(userBId, p('token-user-b'))
+
+      await db.insert(devicesTable).values({
+        id: deviceId,
+        userId: userBId,
+        name: 'User B Device',
+        lastSeen: now,
+        createdAt: now,
+        trusted: true,
+      })
+
+      const response = await app.handle(
+        new Request(`http://localhost/v1/account/devices/${deviceId}/revoke`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${signToken(tokenA)}` },
+        }),
+      )
+
+      expect(response.status).toBe(404)
+
+      const [device] = await db.select().from(devicesTable).where(eq(devicesTable.id, deviceId))
+      expect(device.trusted).toBe(true)
+      expect(device.revokedAt).toBeNull()
+    })
+
+    it('returns 404 for non-existent device', async () => {
+      const userId = p('revoke-nonexistent-user')
+      const token = p('revoke-nonexistent-token')
+      await createUserAndSession(userId, token)
+
+      const response = await app.handle(
+        new Request(`http://localhost/v1/account/devices/${p('does-not-exist')}/revoke`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${signToken(token)}` },
+        }),
+      )
+
+      expect(response.status).toBe(404)
+    })
+
+    it('returns 204 when revoking already-revoked device (idempotent)', async () => {
+      const userId = p('revoke-idempotent-user')
+      const token = p('revoke-idempotent-token')
+      const deviceId = p('device-already-revoked')
+      const now = await createUserAndSession(userId, token)
+
+      await db.insert(devicesTable).values({
+        id: deviceId,
+        userId,
+        name: 'Already Revoked',
+        lastSeen: now,
+        createdAt: now,
+        trusted: true,
+      })
+
+      // First revoke
+      await app.handle(
+        new Request(`http://localhost/v1/account/devices/${deviceId}/revoke`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${signToken(token)}` },
+        }),
+      )
+
+      // Second revoke
+      const response = await app.handle(
+        new Request(`http://localhost/v1/account/devices/${deviceId}/revoke`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${signToken(token)}` },
+        }),
+      )
+
+      expect(response.status).toBe(204)
+
+      const [device] = await db.select().from(devicesTable).where(eq(devicesTable.id, deviceId))
+      expect(device.revokedAt).not.toBeNull()
+    })
+
+    it('handles device with no envelope gracefully', async () => {
+      const userId = p('revoke-no-envelope-user')
+      const token = p('revoke-no-envelope-token')
+      const deviceId = p('device-no-envelope')
+      const now = await createUserAndSession(userId, token)
+
+      await db.insert(devicesTable).values({
+        id: deviceId,
+        userId,
+        name: 'Pending Device',
+        lastSeen: now,
+        createdAt: now,
+        trusted: false,
+      })
+
+      const response = await app.handle(
+        new Request(`http://localhost/v1/account/devices/${deviceId}/revoke`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${signToken(token)}` },
+        }),
+      )
+
+      expect(response.status).toBe(204)
+
+      const [device] = await db.select().from(devicesTable).where(eq(devicesTable.id, deviceId))
+      expect(device.revokedAt).not.toBeNull()
+
+      const envelopes = await db.select().from(envelopesTable).where(eq(envelopesTable.deviceId, deviceId))
+      expect(envelopes).toHaveLength(0)
     })
   })
 })

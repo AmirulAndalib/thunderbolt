@@ -41,6 +41,7 @@ const settingsSchema = z.object({
   oidcClientSecret: z.string().default(''),
   oidcIssuer: z.string().default(''),
   betterAuthUrl: z.string().default('http://localhost:8000'),
+  betterAuthSecret: z.string().min(1),
 
   // General settings
   logLevel: z.enum(['DEBUG', 'INFO', 'WARN', 'ERROR']).default('INFO'),
@@ -61,22 +62,28 @@ const settingsSchema = z.object({
   powersyncJwtSecret: z.string().default(''),
   powersyncTokenExpirySeconds: z.coerce.number().default(3600),
 
-  // CORS settings
-  corsOrigins: z.string().default('http://localhost:1420'),
-  corsOriginRegex: z
-    .string()
-    .default('^(tauri://localhost|http://tauri\\.localhost|http://localhost:\\d+)$')
-    // Value is from CORS_ORIGIN_REGEX env var set by the server deployer, not user input.
-    // nosemgrep: javascript.lang.security.audit.detect-non-literal-regexp.detect-non-literal-regexp
-    .transform((val) => (val ? new RegExp(val) : null)),
+  // CORS settings — comma-separated list of exact origins
+  corsOrigins: z.string().default('http://localhost:1420,tauri://localhost,http://tauri.localhost'),
   corsAllowCredentials: z.boolean().default(true),
   corsAllowMethods: z.string().default('GET,POST,PUT,DELETE,PATCH,OPTIONS'),
   corsAllowHeaders: z
     .string()
     .default(
-      'Content-Type,Authorization,Accept,Accept-Encoding,Accept-Language,Cache-Control,User-Agent,X-Requested-With,X-Client-Platform,X-Device-ID,X-Device-Name,X-Mcp-Target-Url,Mcp-Session-Id,Mcp-Protocol-Version',
+      'Content-Type,Authorization,Accept,Accept-Encoding,Accept-Language,Cache-Control,User-Agent,X-Requested-With,X-Client-Platform,X-Device-ID,X-Device-Name,X-Challenge-Token,X-Mcp-Target-Url,Mcp-Authorization,Mcp-Session-Id,Mcp-Protocol-Version',
     ),
-  corsExposeHeaders: z.string().default('mcp-session-id,set-auth-token'),
+  corsExposeHeaders: z
+    .string()
+    .default('mcp-session-id,set-auth-token,ratelimit-limit,ratelimit-remaining,ratelimit-reset,retry-after'),
+
+  swaggerEnabled: z.boolean().default(false),
+
+  // Rate limiting
+  rateLimitEnabled: z.boolean().default(true),
+
+  // Trusted proxy (controls which proxy headers are trusted for IP extraction)
+  // Set to 'cloudflare' to trust CF-Connecting-IP, 'akamai' for True-Client-IP,
+  // or leave empty to use only the direct socket IP (proxy headers are NOT trusted)
+  trustedProxy: z.enum(['', 'cloudflare', 'akamai']).default(''),
 })
 
 export type Settings = z.infer<typeof settingsSchema>
@@ -110,6 +117,7 @@ const parseSettings = (): Settings => {
     oidcClientSecret: process.env.OIDC_CLIENT_SECRET || '',
     oidcIssuer: process.env.OIDC_ISSUER || '',
     betterAuthUrl: process.env.BETTER_AUTH_URL || 'http://localhost:8000',
+    betterAuthSecret: process.env.BETTER_AUTH_SECRET,
     logLevel: (process.env.LOG_LEVEL || 'INFO').toUpperCase(),
     port: process.env.PORT || '8000',
     appUrl: process.env.APP_URL || 'http://localhost:1420',
@@ -121,15 +129,18 @@ const parseSettings = (): Settings => {
     powersyncJwtKid: process.env.POWERSYNC_JWT_KID || '',
     powersyncJwtSecret: process.env.POWERSYNC_JWT_SECRET || '',
     powersyncTokenExpirySeconds: process.env.POWERSYNC_TOKEN_EXPIRY_SECONDS || '3600',
-    corsOrigins: process.env.CORS_ORIGINS || 'http://localhost:1420',
-    corsOriginRegex:
-      process.env.CORS_ORIGIN_REGEX ?? '^(tauri://localhost|http://tauri\\.localhost|http://localhost:\\d+)$',
+    corsOrigins: process.env.CORS_ORIGINS || 'http://localhost:1420,tauri://localhost,http://tauri.localhost',
     corsAllowCredentials: process.env.CORS_ALLOW_CREDENTIALS !== 'false',
     corsAllowMethods: process.env.CORS_ALLOW_METHODS || 'GET,POST,PUT,DELETE,PATCH,OPTIONS',
     corsAllowHeaders:
       process.env.CORS_ALLOW_HEADERS ||
-      'Content-Type,Authorization,Accept,Accept-Encoding,Accept-Language,Cache-Control,User-Agent,X-Requested-With,X-Client-Platform,X-Device-ID,X-Device-Name,X-Mcp-Target-Url,Mcp-Session-Id,Mcp-Protocol-Version',
-    corsExposeHeaders: process.env.CORS_EXPOSE_HEADERS || 'mcp-session-id,set-auth-token',
+      'Content-Type,Authorization,Accept,Accept-Encoding,Accept-Language,Cache-Control,User-Agent,X-Requested-With,X-Client-Platform,X-Device-ID,X-Device-Name,X-Challenge-Token,X-Mcp-Target-Url,Mcp-Authorization,Mcp-Session-Id,Mcp-Protocol-Version',
+    corsExposeHeaders:
+      process.env.CORS_EXPOSE_HEADERS ||
+      'mcp-session-id,set-auth-token,ratelimit-limit,ratelimit-remaining,ratelimit-reset,retry-after',
+    swaggerEnabled: process.env.SWAGGER_ENABLED === 'true',
+    rateLimitEnabled: process.env.RATE_LIMIT_ENABLED !== 'false',
+    trustedProxy: (process.env.TRUSTED_PROXY || '').toLowerCase(),
   }
 
   return settingsSchema.parse(env)
@@ -155,9 +166,7 @@ export const clearSettingsCache = (): void => {
   settings = null
 }
 
-/**
- * Derived properties similar to the Python version
- */
+/** Parse comma-separated CORS origins into a list. */
 export const getCorsOriginsList = (settings: Pick<Settings, 'corsOrigins'>): string[] => {
   return settings.corsOrigins
     .split(',')
@@ -165,11 +174,9 @@ export const getCorsOriginsList = (settings: Pick<Settings, 'corsOrigins'>): str
     .filter((origin) => origin.length > 0)
 }
 
-/**
- * Get CORS origins as either a RegExp pattern or array of strings
- */
-export const getCorsOrigins = (settings: Settings): RegExp | string[] => {
-  return settings.corsOriginRegex ?? getCorsOriginsList(settings)
+/** Check whether a given origin is allowed by the configured CORS origins (exact match). */
+export const isOriginAllowed = (origin: string, settings: Pick<Settings, 'corsOrigins'>): boolean => {
+  return getCorsOriginsList(settings).includes(origin)
 }
 
 export const getCorsMethodsList = (settings: Pick<Settings, 'corsAllowMethods'>): string[] => {

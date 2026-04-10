@@ -96,7 +96,7 @@ export {
 } from './model-profiles'
 
 // Devices
-export { getAllDevices, getDevice, type Device } from './devices'
+export { getAllDevices, getDevice, getPendingDevices, type Device } from './devices'
 
 // Agents
 export { getAgent, getAllAgents, getAvailableAgents, getSelectedAgent } from './agents'

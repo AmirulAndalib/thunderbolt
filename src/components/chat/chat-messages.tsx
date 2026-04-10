@@ -117,7 +117,12 @@ export const ChatMessages = ({ saveMessages }: ChatMessagesProps) => {
 
       {/* Show error message if there's an error */}
       {hasError && (
-        <ErrorMessage retryCount={retryCount} retriesExhausted={retriesExhausted} onRetry={() => regenerate()} />
+        <ErrorMessage
+          retryCount={retryCount}
+          retriesExhausted={retriesExhausted}
+          error={chatError}
+          onRetry={() => regenerate()}
+        />
       )}
     </div>
   )

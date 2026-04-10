@@ -1,12 +1,22 @@
 import type { Settings } from '@/config/settings'
 import { createBetterAuthPlugin } from '@/auth/elysia-plugin'
 import { session as sessionTable, user as userTable } from '@/db/auth-schema'
-import { devicesTable, promptsTable, settingsTable } from '@/db/schema'
+import { devicesTable, mcpServersTable, modelsTable, promptsTable, settingsTable } from '@/db/schema'
 import { createTestDb } from '@/test-utils/db'
+import { createHmac } from 'crypto'
 import { eq } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { Elysia } from 'elysia'
 import { createPowerSyncRoutes } from './powersync'
+
+/** Better Auth uses this default secret in test environments */
+const betterAuthSecret = 'better-auth-secret-12345678901234567890'
+
+/** Sign a raw session token for use in `Authorization: Bearer <signed>` headers (standard base64 to match getSignedCookie expectations) */
+const signToken = (token: string): string => {
+  const sig = createHmac('sha256', betterAuthSecret).update(token).digest('base64')
+  return `${token}.${sig}`
+}
 
 const powersyncSettings: Settings = {
   fireworksApiKey: '',
@@ -26,7 +36,6 @@ const powersyncSettings: Settings = {
   posthogHost: '',
   posthogApiKey: '',
   corsOrigins: '',
-  corsOriginRegex: null,
   corsAllowCredentials: true,
   corsAllowMethods: '',
   corsAllowHeaders: '',
@@ -50,6 +59,10 @@ const powersyncSettings: Settings = {
   haystackPipelines: '',
   enabledAgents: '',
   allowCustomAgents: true,
+  betterAuthSecret,
+  rateLimitEnabled: false,
+  swaggerEnabled: false,
+  trustedProxy: '',
 }
 
 describe('PowerSync API', () => {
@@ -71,9 +84,22 @@ describe('PowerSync API', () => {
 
   const uploadHeaders = (bearer: string, deviceId = 'test-device-id') => ({
     'Content-Type': 'application/json',
-    Authorization: `Bearer ${bearer}`,
+    Authorization: `Bearer ${signToken(bearer)}`,
     'X-Device-ID': deviceId,
   })
+
+  /** Insert a trusted device so it passes validateDeviceForSync. */
+  const insertTrustedDevice = async (deviceId: string, userId: string) => {
+    const now = new Date()
+    await db.insert(devicesTable).values({
+      id: deviceId,
+      userId,
+      name: 'Test Device',
+      trusted: true,
+      lastSeen: now,
+      createdAt: now,
+    })
+  }
 
   describe('GET /powersync/token', () => {
     it('returns 401 when no session and no Bearer token', async () => {
@@ -86,12 +112,47 @@ describe('PowerSync API', () => {
     it('returns 401 when Bearer token does not match any session', async () => {
       const response = await app.handle(
         new Request('http://localhost/powersync/token', {
-          headers: { Authorization: 'Bearer invalid-token' },
+          headers: { Authorization: `Bearer ${signToken('invalid-token')}` },
         }),
       )
       expect(response.status).toBe(401)
       const data = await response.json()
       expect(data).toEqual({ error: 'Unauthorized' })
+    })
+
+    it('returns 401 when Bearer token is unsigned (requireSignature enforcement)', async () => {
+      const userId = 'user-unsigned-bearer'
+      const now = new Date()
+      const expiresAt = new Date(now.getTime() + 3600 * 1000)
+
+      await db.insert(userTable).values({
+        id: userId,
+        name: 'Unsigned Bearer User',
+        email: 'unsigned-bearer@example.com',
+        emailVerified: true,
+        createdAt: now,
+        updatedAt: now,
+      })
+
+      await db.insert(sessionTable).values({
+        id: 'session-unsigned-bearer',
+        expiresAt,
+        token: 'bearer-unsigned-valid',
+        createdAt: now,
+        updatedAt: now,
+        userId,
+      })
+
+      // Token exists in DB but is sent unsigned — must be rejected
+      const response = await app.handle(
+        new Request('http://localhost/powersync/token', {
+          headers: {
+            Authorization: 'Bearer bearer-unsigned-valid',
+            'x-device-id': 'some-device',
+          },
+        }),
+      )
+      expect(response.status).toBe(401)
     })
 
     it('returns 403 when device is revoked', async () => {
@@ -130,7 +191,7 @@ describe('PowerSync API', () => {
       const response = await app.handle(
         new Request('http://localhost/powersync/token', {
           headers: {
-            Authorization: 'Bearer bearer-revoked-device',
+            Authorization: `Bearer ${signToken('bearer-revoked-device')}`,
             'x-device-id': 'revoked-device-id',
           },
         }),
@@ -172,7 +233,7 @@ describe('PowerSync API', () => {
       const response = await app.handle(
         new Request('http://localhost/powersync/token', {
           headers: {
-            Authorization: 'Bearer bearer-user-b',
+            Authorization: `Bearer ${signToken('bearer-user-b')}`,
             'x-device-id': sharedDeviceId,
           },
         }),
@@ -180,6 +241,87 @@ describe('PowerSync API', () => {
       expect(response.status).toBe(409)
       const data = await response.json()
       expect(data).toEqual({ code: 'DEVICE_ID_TAKEN' })
+    })
+
+    it('returns 403 when device does not exist in the database', async () => {
+      const userId = 'user-nonexistent-device'
+      const now = new Date()
+      const expiresAt = new Date(now.getTime() + 3600 * 1000)
+
+      await db.insert(userTable).values({
+        id: userId,
+        name: 'Nonexistent Device User',
+        email: 'nonexistent-device@example.com',
+        emailVerified: true,
+        createdAt: now,
+        updatedAt: now,
+      })
+
+      await db.insert(sessionTable).values({
+        id: 'session-nonexistent-device',
+        expiresAt,
+        token: 'bearer-nonexistent-device',
+        createdAt: now,
+        updatedAt: now,
+        userId,
+      })
+
+      const response = await app.handle(
+        new Request('http://localhost/powersync/token', {
+          headers: {
+            Authorization: `Bearer ${signToken('bearer-nonexistent-device')}`,
+            'x-device-id': 'device-that-does-not-exist',
+          },
+        }),
+      )
+      expect(response.status).toBe(403)
+      const data = await response.json()
+      expect(data).toEqual({ code: 'DEVICE_NOT_TRUSTED' })
+    })
+
+    it('returns 403 when device is untrusted (pending approval)', async () => {
+      const userId = 'user-untrusted-device'
+      const now = new Date()
+      const expiresAt = new Date(now.getTime() + 3600 * 1000)
+
+      await db.insert(userTable).values({
+        id: userId,
+        name: 'Untrusted Device User',
+        email: 'untrusted-device@example.com',
+        emailVerified: true,
+        createdAt: now,
+        updatedAt: now,
+      })
+
+      await db.insert(sessionTable).values({
+        id: 'session-untrusted-device',
+        expiresAt,
+        token: 'bearer-untrusted-device',
+        createdAt: now,
+        updatedAt: now,
+        userId,
+      })
+
+      await db.insert(devicesTable).values({
+        id: 'untrusted-device-id',
+        userId,
+        name: 'Pending Device',
+        trusted: false,
+        lastSeen: now,
+        createdAt: now,
+      })
+
+      const response = await app.handle(
+        new Request('http://localhost/powersync/token', {
+          headers: {
+            Authorization: `Bearer ${signToken('bearer-untrusted-device')}`,
+            'x-device-id': 'untrusted-device-id',
+          },
+        }),
+      )
+      expect(response.status).toBe(403)
+      const data = await response.json()
+      expect(data).toEqual({ code: 'DEVICE_NOT_TRUSTED' })
     })
 
     it('returns 400 when x-device-id is missing', async () => {
@@ -207,7 +349,7 @@ describe('PowerSync API', () => {
 
       const response = await app.handle(
         new Request('http://localhost/powersync/token', {
-          headers: { Authorization: 'Bearer bearer-no-device-id' },
+          headers: { Authorization: `Bearer ${signToken('bearer-no-device-id')}` },
         }),
       )
       expect(response.status).toBe(400)
@@ -241,7 +383,7 @@ describe('PowerSync API', () => {
       const response = await app.handle(
         new Request('http://localhost/powersync/token', {
           headers: {
-            Authorization: 'Bearer bearer-empty-device-id',
+            Authorization: `Bearer ${signToken('bearer-empty-device-id')}`,
             'x-device-id': '   ',
           },
         }),
@@ -286,7 +428,7 @@ describe('PowerSync API', () => {
 
       const response = await app.handle(
         new Request('http://localhost/powersync/token', {
-          headers: { Authorization: 'Bearer bearer-revoked-bypass' },
+          headers: { Authorization: `Bearer ${signToken('bearer-revoked-bypass')}` },
         }),
       )
       expect(response.status).toBe(400)
@@ -316,11 +458,12 @@ describe('PowerSync API', () => {
         updatedAt: now,
         userId,
       })
+      await insertTrustedDevice('device-session-token', userId)
 
       const response = await app.handle(
         new Request('http://localhost/powersync/token', {
           headers: {
-            Authorization: 'Bearer bearer-powersync-valid',
+            Authorization: `Bearer ${signToken('bearer-powersync-valid')}`,
             'x-device-id': 'device-session-token',
           },
         }),
@@ -333,7 +476,7 @@ describe('PowerSync API', () => {
       expect(data.powerSyncUrl).toBe('https://powersync.example.com')
     })
 
-    it('upserts device when x-device-id and x-device-name are provided', async () => {
+    it('updates device name and lastSeen when x-device-id and x-device-name are provided', async () => {
       const userId = 'user-device-upsert'
       const now = new Date()
       const expiresAt = new Date(now.getTime() + 3600 * 1000)
@@ -355,11 +498,12 @@ describe('PowerSync API', () => {
         updatedAt: now,
         userId,
       })
+      await insertTrustedDevice('device-123', userId)
 
       const response = await app.handle(
         new Request('http://localhost/powersync/token', {
           headers: {
-            Authorization: 'Bearer bearer-device-upsert',
+            Authorization: `Bearer ${signToken('bearer-device-upsert')}`,
             'x-device-id': 'device-123',
             'x-device-name': 'My Phone',
           },
@@ -373,7 +517,7 @@ describe('PowerSync API', () => {
       expect(devices[0]?.name).toBe('My Phone')
     })
 
-    it('upserts device with "Unknown device" when x-device-name is empty', async () => {
+    it('updates device with "Unknown device" when x-device-name is empty', async () => {
       const userId = 'user-device-no-name'
       const now = new Date()
       const expiresAt = new Date(now.getTime() + 3600 * 1000)
@@ -395,11 +539,12 @@ describe('PowerSync API', () => {
         updatedAt: now,
         userId,
       })
+      await insertTrustedDevice('device-empty-name', userId)
 
       const response = await app.handle(
         new Request('http://localhost/powersync/token', {
           headers: {
-            Authorization: 'Bearer bearer-device-no-name',
+            Authorization: `Bearer ${signToken('bearer-device-no-name')}`,
             'x-device-id': 'device-empty-name',
             'x-device-name': '',
           },
@@ -412,7 +557,7 @@ describe('PowerSync API', () => {
       expect(devices[0]?.name).toBe('Unknown device')
     })
 
-    it('upserts device with "Unknown device" when x-device-name exceeds 100 characters', async () => {
+    it('updates device with "Unknown device" when x-device-name exceeds 100 characters', async () => {
       const userId = 'user-device-long-name'
       const now = new Date()
       const expiresAt = new Date(now.getTime() + 3600 * 1000)
@@ -434,12 +579,13 @@ describe('PowerSync API', () => {
         updatedAt: now,
         userId,
       })
+      await insertTrustedDevice('device-long-name', userId)
 
       const longName = 'a'.repeat(101)
       const response = await app.handle(
         new Request('http://localhost/powersync/token', {
           headers: {
-            Authorization: 'Bearer bearer-device-long-name',
+            Authorization: `Bearer ${signToken('bearer-device-long-name')}`,
             'x-device-id': 'device-long-name',
             'x-device-name': longName,
           },
@@ -452,7 +598,7 @@ describe('PowerSync API', () => {
       expect(devices[0]?.name).toBe('Unknown device')
     })
 
-    it('upserts device when x-device-name is exactly 100 characters', async () => {
+    it('updates device when x-device-name is exactly 100 characters', async () => {
       const userId = 'user-device-100-char'
       const now = new Date()
       const expiresAt = new Date(now.getTime() + 3600 * 1000)
@@ -474,12 +620,13 @@ describe('PowerSync API', () => {
         updatedAt: now,
         userId,
       })
+      await insertTrustedDevice('device-100-char', userId)
 
       const name100 = 'a'.repeat(100)
       const response = await app.handle(
         new Request('http://localhost/powersync/token', {
           headers: {
-            Authorization: 'Bearer bearer-device-100-char',
+            Authorization: `Bearer ${signToken('bearer-device-100-char')}`,
             'x-device-id': 'device-100-char',
             'x-device-name': name100,
           },
@@ -492,7 +639,7 @@ describe('PowerSync API', () => {
       expect(devices[0]?.name).toBe(name100)
     })
 
-    it('upserts device when x-device-name is a single character', async () => {
+    it('updates device when x-device-name is a single character', async () => {
       const userId = 'user-device-1-char'
       const now = new Date()
       const expiresAt = new Date(now.getTime() + 3600 * 1000)
@@ -514,11 +661,12 @@ describe('PowerSync API', () => {
         updatedAt: now,
         userId,
       })
+      await insertTrustedDevice('device-1-char', userId)
 
       const response = await app.handle(
         new Request('http://localhost/powersync/token', {
           headers: {
-            Authorization: 'Bearer bearer-device-1-char',
+            Authorization: `Bearer ${signToken('bearer-device-1-char')}`,
             'x-device-id': 'device-1-char',
             'x-device-name': 'X',
           },
@@ -574,7 +722,7 @@ describe('PowerSync API', () => {
           method: 'PUT',
           headers: {
             'Content-Type': 'application/json',
-            Authorization: 'Bearer bearer-upload-no-device',
+            Authorization: `Bearer ${signToken('bearer-upload-no-device')}`,
           },
           body: JSON.stringify({ operations: [] }),
         }),
@@ -652,6 +800,7 @@ describe('PowerSync API', () => {
         updatedAt: now,
         userId,
       })
+      await insertTrustedDevice('test-device-id', userId)
 
       const response = await app.handle(
         new Request('http://localhost/powersync/upload', {
@@ -685,6 +834,7 @@ describe('PowerSync API', () => {
         updatedAt: now,
         userId,
       })
+      await insertTrustedDevice('test-device-id', userId)
 
       const response = await app.handle(
         new Request('http://localhost/powersync/upload', {
@@ -733,6 +883,7 @@ describe('PowerSync API', () => {
         updatedAt: now,
         userId,
       })
+      await insertTrustedDevice('test-device-id', userId)
 
       const response = await app.handle(
         new Request('http://localhost/powersync/upload', {
@@ -773,6 +924,7 @@ describe('PowerSync API', () => {
         { id: 'session-a-same', expiresAt, token: 'bearer-a-same', createdAt: now, updatedAt: now, userId: userA },
         { id: 'session-b-same', expiresAt, token: 'bearer-b-same', createdAt: now, updatedAt: now, userId: userB },
       ])
+      await insertTrustedDevice('test-device-b-same', userB)
 
       await db.insert(settingsTable).values({
         key: 'shared_key',
@@ -783,7 +935,7 @@ describe('PowerSync API', () => {
       const response = await app.handle(
         new Request('http://localhost/powersync/upload', {
           method: 'PUT',
-          headers: uploadHeaders('bearer-b-same'),
+          headers: uploadHeaders('bearer-b-same', 'test-device-b-same'),
           body: JSON.stringify({
             operations: [
               {
@@ -830,6 +982,7 @@ describe('PowerSync API', () => {
         updatedAt: now,
         userId,
       })
+      await insertTrustedDevice('test-device-id', userId)
 
       await db.insert(settingsTable).values({
         key: 'patch_setting',
@@ -881,6 +1034,7 @@ describe('PowerSync API', () => {
         updatedAt: now,
         userId,
       })
+      await insertTrustedDevice('test-device-id', userId)
       await db.insert(settingsTable).values({
         key: 'empty_patch_setting',
         value: 'unchanged',
@@ -931,6 +1085,7 @@ describe('PowerSync API', () => {
         updatedAt: now,
         userId,
       })
+      await insertTrustedDevice('test-device-id', userId)
       // No settings row exists for 'nonexistent_key'
 
       const response = await app.handle(
@@ -996,6 +1151,7 @@ describe('PowerSync API', () => {
           userId: userB,
         },
       ])
+      await insertTrustedDevice('test-device-patch-attacker', userB)
       await db.insert(settingsTable).values({
         key: 'owner_only_setting',
         value: 'owner_value',
@@ -1005,7 +1161,7 @@ describe('PowerSync API', () => {
       const response = await app.handle(
         new Request('http://localhost/powersync/upload', {
           method: 'PUT',
-          headers: uploadHeaders('bearer-patch-attacker'),
+          headers: uploadHeaders('bearer-patch-attacker', 'test-device-patch-attacker'),
           body: JSON.stringify({
             operations: [
               {
@@ -1049,6 +1205,7 @@ describe('PowerSync API', () => {
         updatedAt: now,
         userId,
       })
+      await insertTrustedDevice('test-device-id', userId)
       await db.insert(settingsTable).values({
         key: 'patch_owned',
         value: 'initial',
@@ -1100,6 +1257,7 @@ describe('PowerSync API', () => {
         updatedAt: now,
         userId,
       })
+      await insertTrustedDevice('test-device-id', userId)
       await db.insert(promptsTable).values({
         id: 'prompt-to-soft-delete',
         title: 'My Prompt',
@@ -1157,6 +1315,7 @@ describe('PowerSync API', () => {
         updatedAt: now,
         userId,
       })
+      await insertTrustedDevice('test-device-id', userId)
 
       await db.insert(settingsTable).values({
         key: 'to_delete',
@@ -1200,6 +1359,7 @@ describe('PowerSync API', () => {
         updatedAt: now,
         userId,
       })
+      await insertTrustedDevice('test-device-id', userId)
       // No settings row exists for 'nonexistent_to_delete'
 
       const response = await app.handle(
@@ -1258,6 +1418,7 @@ describe('PowerSync API', () => {
           userId: userB,
         },
       ])
+      await insertTrustedDevice('test-device-delete-attacker', userB)
       await db.insert(settingsTable).values({
         key: 'owner_only_to_delete',
         value: 'x',
@@ -1267,7 +1428,7 @@ describe('PowerSync API', () => {
       const response = await app.handle(
         new Request('http://localhost/powersync/upload', {
           method: 'PUT',
-          headers: uploadHeaders('bearer-delete-attacker'),
+          headers: uploadHeaders('bearer-delete-attacker', 'test-device-delete-attacker'),
           body: JSON.stringify({
             operations: [{ op: 'DELETE' as const, type: 'settings', id: 'owner_only_to_delete' }],
           }),
@@ -1304,6 +1465,7 @@ describe('PowerSync API', () => {
         updatedAt: now,
         userId,
       })
+      await insertTrustedDevice('test-device-id', userId)
 
       const response = await app.handle(
         new Request('http://localhost/powersync/upload', {
@@ -1361,11 +1523,13 @@ describe('PowerSync API', () => {
         { id: 'session-multi-a', expiresAt, token: 'bearer-multi-a', createdAt: now, updatedAt: now, userId: userA },
         { id: 'session-multi-b', expiresAt, token: 'bearer-multi-b', createdAt: now, updatedAt: now, userId: userB },
       ])
+      await insertTrustedDevice('test-device-multi-a', userA)
+      await insertTrustedDevice('test-device-multi-b', userB)
 
       const responseA = await app.handle(
         new Request('http://localhost/powersync/upload', {
           method: 'PUT',
-          headers: uploadHeaders('bearer-multi-a'),
+          headers: uploadHeaders('bearer-multi-a', 'test-device-multi-a'),
           body: JSON.stringify({
             operations: [{ op: 'PUT' as const, type: 'settings', id: 'ui-theme', data: { value: 'dark' } }],
           }),
@@ -1376,7 +1540,7 @@ describe('PowerSync API', () => {
       const responseB = await app.handle(
         new Request('http://localhost/powersync/upload', {
           method: 'PUT',
-          headers: uploadHeaders('bearer-multi-b'),
+          headers: uploadHeaders('bearer-multi-b', 'test-device-multi-b'),
           body: JSON.stringify({
             operations: [{ op: 'PUT' as const, type: 'settings', id: 'ui-theme', data: { value: 'light' } }],
           }),
@@ -1434,11 +1598,13 @@ describe('PowerSync API', () => {
           userId: userB,
         },
       ])
+      await insertTrustedDevice('test-device-isolated-a', userA)
+      await insertTrustedDevice('test-device-isolated-b', userB)
 
       await app.handle(
         new Request('http://localhost/powersync/upload', {
           method: 'PUT',
-          headers: uploadHeaders('bearer-isolated-a'),
+          headers: uploadHeaders('bearer-isolated-a', 'test-device-isolated-a'),
           body: JSON.stringify({
             operations: [
               { op: 'PUT' as const, type: 'settings', id: 'preferred_name', data: { value: 'Alice' } },
@@ -1451,7 +1617,7 @@ describe('PowerSync API', () => {
       await app.handle(
         new Request('http://localhost/powersync/upload', {
           method: 'PUT',
-          headers: uploadHeaders('bearer-isolated-b'),
+          headers: uploadHeaders('bearer-isolated-b', 'test-device-isolated-b'),
           body: JSON.stringify({
             operations: [
               { op: 'PUT' as const, type: 'settings', id: 'preferred_name', data: { value: 'Bob' } },
@@ -1464,7 +1630,7 @@ describe('PowerSync API', () => {
       await app.handle(
         new Request('http://localhost/powersync/upload', {
           method: 'PUT',
-          headers: uploadHeaders('bearer-isolated-a'),
+          headers: uploadHeaders('bearer-isolated-a', 'test-device-isolated-a'),
           body: JSON.stringify({
             operations: [
               { op: 'PATCH' as const, type: 'settings', id: 'preferred_name', data: { value: 'Alice Smith' } },
@@ -1476,7 +1642,7 @@ describe('PowerSync API', () => {
       await app.handle(
         new Request('http://localhost/powersync/upload', {
           method: 'PUT',
-          headers: uploadHeaders('bearer-isolated-b'),
+          headers: uploadHeaders('bearer-isolated-b', 'test-device-isolated-b'),
           body: JSON.stringify({
             operations: [{ op: 'PATCH' as const, type: 'settings', id: 'ui-theme', data: { value: 'system' } }],
           }),
@@ -1516,6 +1682,7 @@ describe('PowerSync API', () => {
         updatedAt: now,
         userId,
       })
+      await insertTrustedDevice('test-device-id', userId)
 
       const response = await app.handle(
         new Request('http://localhost/powersync/upload', {
@@ -1564,6 +1731,7 @@ describe('PowerSync API', () => {
         updatedAt: now,
         userId,
       })
+      await insertTrustedDevice('test-device-id', userId)
 
       const response = await app.handle(
         new Request('http://localhost/powersync/upload', {
@@ -1575,6 +1743,285 @@ describe('PowerSync API', () => {
       expect(response.status).toBe(200)
       const data = (await response.json()) as { success: boolean }
       expect(data.success).toBe(true)
+    })
+  })
+})
+
+describe('PowerSync cross-origin injection protection', () => {
+  const corsSettings: Settings = {
+    ...powersyncSettings,
+    corsOrigins: 'http://localhost:1420,tauri://localhost,http://tauri.localhost',
+  }
+
+  let app: Elysia
+  let db: Awaited<ReturnType<typeof createTestDb>>['db']
+  let cleanup: () => Promise<void>
+
+  const seedUser = async (userId: string, token: string, trustedDeviceId?: string) => {
+    const now = new Date()
+    const expiresAt = new Date(now.getTime() + 3600 * 1000)
+    await db.insert(userTable).values({
+      id: userId,
+      name: 'CORS Test User',
+      email: `${userId}@example.com`,
+      emailVerified: true,
+      createdAt: now,
+      updatedAt: now,
+    })
+    await db.insert(sessionTable).values({
+      id: `session-${userId}`,
+      expiresAt,
+      token,
+      createdAt: now,
+      updatedAt: now,
+      userId,
+    })
+    if (trustedDeviceId) {
+      await db.insert(devicesTable).values({
+        id: trustedDeviceId,
+        userId,
+        name: 'CORS Test Device',
+        trusted: true,
+        lastSeen: now,
+        createdAt: now,
+      })
+    }
+  }
+
+  beforeEach(async () => {
+    const testEnv = await createTestDb()
+    db = testEnv.db
+    cleanup = testEnv.cleanup
+    const { auth } = createBetterAuthPlugin(db)
+    app = new Elysia().use(createPowerSyncRoutes(auth, corsSettings, db)) as unknown as Elysia
+  })
+
+  afterEach(async () => {
+    await cleanup()
+  })
+
+  describe('PUT /powersync/upload origin validation', () => {
+    it('rejects upload from disallowed cross-origin (attacker port)', async () => {
+      await seedUser('user-cors-upload', 'bearer-cors-upload')
+      const response = await app.handle(
+        new Request('http://localhost/powersync/upload', {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${signToken('bearer-cors-upload')}`,
+            'X-Device-ID': 'cors-test-device',
+            Origin: 'http://localhost:9999',
+          },
+          body: JSON.stringify({
+            operations: [
+              { op: 'PUT' as const, type: 'settings', id: 'cloud_url', data: { value: 'https://attacker.com/v1' } },
+            ],
+          }),
+        }),
+      )
+      expect(response.status).toBe(403)
+      const data = (await response.json()) as { code: string }
+      expect(data.code).toBe('ORIGIN_NOT_ALLOWED')
+
+      // Verify nothing was written
+      const rows = await db.select().from(settingsTable).where(eq(settingsTable.key, 'cloud_url'))
+      expect(rows).toHaveLength(0)
+    })
+
+    it('rejects model injection from attacker origin', async () => {
+      await seedUser('user-model-inject', 'bearer-model-inject')
+      const response = await app.handle(
+        new Request('http://localhost/powersync/upload', {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${signToken('bearer-model-inject')}`,
+            'X-Device-ID': 'attacker-device',
+            Origin: 'http://localhost:9999',
+          },
+          body: JSON.stringify({
+            operations: [
+              {
+                op: 'PUT' as const,
+                type: 'models',
+                id: 'evil-model',
+                data: {
+                  provider: 'custom',
+                  name: 'GPT-5 Ultra (Free)',
+                  model: 'gpt-5',
+                  url: 'https://attacker.com/v1',
+                  enabled: 1,
+                  tool_usage: 1,
+                },
+              },
+            ],
+          }),
+        }),
+      )
+      expect(response.status).toBe(403)
+
+      const rows = await db.select().from(modelsTable).where(eq(modelsTable.id, 'evil-model'))
+      expect(rows).toHaveLength(0)
+    })
+
+    it('rejects MCP server injection from attacker origin', async () => {
+      await seedUser('user-mcp-inject', 'bearer-mcp-inject')
+      const response = await app.handle(
+        new Request('http://localhost/powersync/upload', {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${signToken('bearer-mcp-inject')}`,
+            'X-Device-ID': 'attacker-device',
+            Origin: 'http://localhost:9999',
+          },
+          body: JSON.stringify({
+            operations: [
+              {
+                op: 'PUT' as const,
+                type: 'mcp_servers',
+                id: 'evil-mcp',
+                data: {
+                  name: 'Enhanced Tools',
+                  type: 'http',
+                  url: 'https://attacker.com/mcp',
+                  enabled: 1,
+                },
+              },
+            ],
+          }),
+        }),
+      )
+      expect(response.status).toBe(403)
+
+      const rows = await db.select().from(mcpServersTable).where(eq(mcpServersTable.id, 'evil-mcp'))
+      expect(rows).toHaveLength(0)
+    })
+
+    it('allows upload from legitimate origin (http://localhost:1420)', async () => {
+      await seedUser('user-legit-origin', 'bearer-legit-origin', 'legit-device')
+      const response = await app.handle(
+        new Request('http://localhost/powersync/upload', {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${signToken('bearer-legit-origin')}`,
+            'X-Device-ID': 'legit-device',
+            Origin: 'http://localhost:1420',
+          },
+          body: JSON.stringify({
+            operations: [{ op: 'PUT' as const, type: 'settings', id: 'theme', data: { value: 'dark' } }],
+          }),
+        }),
+      )
+      expect(response.status).toBe(200)
+
+      const rows = await db.select().from(settingsTable).where(eq(settingsTable.key, 'theme'))
+      expect(rows).toHaveLength(1)
+      expect(rows[0]?.value).toBe('dark')
+    })
+
+    it('allows upload from Tauri origin', async () => {
+      await seedUser('user-tauri-origin', 'bearer-tauri-origin', 'tauri-device')
+      const response = await app.handle(
+        new Request('http://localhost/powersync/upload', {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${signToken('bearer-tauri-origin')}`,
+            'X-Device-ID': 'tauri-device',
+            Origin: 'tauri://localhost',
+          },
+          body: JSON.stringify({
+            operations: [{ op: 'PUT' as const, type: 'settings', id: 'tauri_setting', data: { value: 'yes' } }],
+          }),
+        }),
+      )
+      expect(response.status).toBe(200)
+    })
+
+    it('allows upload without Origin header (non-browser clients)', async () => {
+      await seedUser('user-no-origin', 'bearer-no-origin', 'server-device')
+      const response = await app.handle(
+        new Request('http://localhost/powersync/upload', {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${signToken('bearer-no-origin')}`,
+            'X-Device-ID': 'server-device',
+          },
+          body: JSON.stringify({
+            operations: [{ op: 'PUT' as const, type: 'settings', id: 'server_setting', data: { value: 'ok' } }],
+          }),
+        }),
+      )
+      expect(response.status).toBe(200)
+    })
+
+    it('rejects upload from external attacker domain', async () => {
+      await seedUser('user-ext-attacker', 'bearer-ext-attacker')
+      const response = await app.handle(
+        new Request('http://localhost/powersync/upload', {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${signToken('bearer-ext-attacker')}`,
+            'X-Device-ID': 'attacker-device',
+            Origin: 'https://attacker.com',
+          },
+          body: JSON.stringify({
+            operations: [
+              { op: 'PUT' as const, type: 'settings', id: 'cloud_url', data: { value: 'https://attacker.com/v1' } },
+            ],
+          }),
+        }),
+      )
+      expect(response.status).toBe(403)
+    })
+  })
+
+  describe('GET /powersync/token origin validation', () => {
+    it('rejects token request from disallowed origin', async () => {
+      await seedUser('user-cors-token', 'bearer-cors-token')
+      const response = await app.handle(
+        new Request('http://localhost/powersync/token', {
+          headers: {
+            Authorization: `Bearer ${signToken('bearer-cors-token')}`,
+            'X-Device-ID': 'cors-token-device',
+            Origin: 'http://localhost:9999',
+          },
+        }),
+      )
+      expect(response.status).toBe(403)
+      const data = (await response.json()) as { code: string }
+      expect(data.code).toBe('ORIGIN_NOT_ALLOWED')
+    })
+
+    it('allows token request from legitimate origin', async () => {
+      await seedUser('user-legit-token', 'bearer-legit-token', 'legit-token-device')
+      const response = await app.handle(
+        new Request('http://localhost/powersync/token', {
+          headers: {
+            Authorization: `Bearer ${signToken('bearer-legit-token')}`,
+            'X-Device-ID': 'legit-token-device',
+            Origin: 'http://localhost:1420',
+          },
+        }),
+      )
+      expect(response.status).toBe(200)
+    })
+
+    it('allows token request without Origin header', async () => {
+      await seedUser('user-no-origin-token', 'bearer-no-origin-token', 'no-origin-device')
+      const response = await app.handle(
+        new Request('http://localhost/powersync/token', {
+          headers: {
+            Authorization: `Bearer ${signToken('bearer-no-origin-token')}`,
+            'X-Device-ID': 'no-origin-device',
+          },
+        }),
+      )
+      expect(response.status).toBe(200)
     })
   })
 })

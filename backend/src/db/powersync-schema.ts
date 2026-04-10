@@ -2,6 +2,7 @@ import type { PowerSyncTableName } from '@shared/powersync-tables'
 import {
   type AnyPgColumn,
   type AnyPgTable,
+  boolean,
   index,
   integer,
   pgSchema,
@@ -222,7 +223,7 @@ export const modelProfilesTable = powersyncSchema.table(
   (table) => [primaryKey({ columns: [table.id, table.userId] }), index('idx_model_profiles_user_id').on(table.userId)],
 )
 
-/** Synced via PowerSync. Device list and revoke access. No token. */
+/** Synced via PowerSync. Device list, status, and public key for encryption. */
 export const devicesTable = powersyncSchema.table(
   'devices',
   {
@@ -231,6 +232,10 @@ export const devicesTable = powersyncSchema.table(
       .notNull()
       .references(() => user.id, { onDelete: 'cascade' }),
     name: text('name'),
+    trusted: boolean('trusted').notNull().default(false),
+    approvalPending: boolean('approval_pending').notNull().default(false),
+    publicKey: text('public_key'),
+    mlkemPublicKey: text('mlkem_public_key'),
     lastSeen: timestamp('last_seen').defaultNow(),
     createdAt: timestamp('created_at').defaultNow(),
     revokedAt: timestamp('revoked_at'),

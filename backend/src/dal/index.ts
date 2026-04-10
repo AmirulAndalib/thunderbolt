@@ -1,5 +1,5 @@
 // Devices
-export { getDeviceById, upsertDevice, revokeDevice } from './devices'
+export { getDeviceById, upsertDevice, revokeDevice, denyDevice, markDeviceTrusted, registerDevice } from './devices'
 
 // Users
 export { getUserById, getUserByEmail, deleteUser, markUserNotNew } from './users'
@@ -12,3 +12,16 @@ export { getWaitlistByEmail, createWaitlistEntry, approveWaitlistEntry } from '.
 
 // PowerSync
 export { applyOperation } from './powersync'
+
+// OTP Challenge (session binding)
+export { getOrCreateOtpChallenge, validateOtpChallenge, deleteOtpChallengesForEmail } from './otp-challenge'
+
+// Encryption
+export {
+  getEnvelopeByDeviceId,
+  hasEnvelopesForUser,
+  upsertEnvelope,
+  deleteEnvelope,
+  getEncryptionMetadata,
+  insertEncryptionMetadataIfNotExists,
+} from './encryption'

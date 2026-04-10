@@ -6,6 +6,7 @@ import {
   getCorsMethodsList,
   getCorsOriginsList,
   getSettings,
+  isOriginAllowed,
 } from './settings'
 import type { Settings } from './settings'
 
@@ -13,37 +14,94 @@ describe('Config Settings', () => {
   describe('getCorsOriginsList', () => {
     it('should split comma-separated origins', () => {
       const settings = { corsOrigins: 'http://localhost:3000,https://example.com,https://app.example.com' }
-      const origins = getCorsOriginsList(settings as Pick<Settings, 'corsOrigins'>)
+      const origins = getCorsOriginsList(settings)
 
       expect(origins).toEqual(['http://localhost:3000', 'https://example.com', 'https://app.example.com'])
     })
 
     it('should handle single origin', () => {
       const settings = { corsOrigins: 'http://localhost:3000' }
-      const origins = getCorsOriginsList(settings as Pick<Settings, 'corsOrigins'>)
+      const origins = getCorsOriginsList(settings)
 
       expect(origins).toEqual(['http://localhost:3000'])
     })
 
     it('should trim whitespace from origins', () => {
       const settings = { corsOrigins: ' http://localhost:3000 , https://example.com , https://app.example.com ' }
-      const origins = getCorsOriginsList(settings as Pick<Settings, 'corsOrigins'>)
+      const origins = getCorsOriginsList(settings)
 
       expect(origins).toEqual(['http://localhost:3000', 'https://example.com', 'https://app.example.com'])
     })
 
     it('should filter out empty origins', () => {
       const settings = { corsOrigins: 'http://localhost:3000,,https://example.com,' }
-      const origins = getCorsOriginsList(settings as Pick<Settings, 'corsOrigins'>)
+      const origins = getCorsOriginsList(settings)
 
       expect(origins).toEqual(['http://localhost:3000', 'https://example.com'])
     })
 
     it('should handle empty string', () => {
       const settings = { corsOrigins: '' }
-      const origins = getCorsOriginsList(settings as Pick<Settings, 'corsOrigins'>)
+      const origins = getCorsOriginsList(settings)
 
       expect(origins).toEqual([])
+    })
+  })
+
+  describe('CORS default security', () => {
+    const CORS_ENV_KEYS = ['CORS_ORIGINS'] as const
+
+    let savedEnv: Partial<Record<string, string | undefined>>
+
+    beforeEach(() => {
+      clearSettingsCache()
+      savedEnv = {}
+      for (const key of CORS_ENV_KEYS) {
+        savedEnv[key] = process.env[key]
+      }
+    })
+
+    afterEach(() => {
+      for (const key of CORS_ENV_KEYS) {
+        if (savedEnv[key] !== undefined) {
+          process.env[key] = savedEnv[key]
+        } else {
+          delete process.env[key]
+        }
+      }
+      clearSettingsCache()
+    })
+
+    it('should NOT match arbitrary localhost ports by default', () => {
+      delete process.env.CORS_ORIGINS
+      const settings = getSettings()
+
+      expect(isOriginAllowed('http://localhost:9999', settings)).toBe(false)
+      expect(isOriginAllowed('http://localhost:4000', settings)).toBe(false)
+      expect(isOriginAllowed('http://localhost:8080', settings)).toBe(false)
+    })
+
+    it('should allow Tauri origins by default', () => {
+      delete process.env.CORS_ORIGINS
+      const settings = getSettings()
+
+      expect(isOriginAllowed('tauri://localhost', settings)).toBe(true)
+      expect(isOriginAllowed('http://tauri.localhost', settings)).toBe(true)
+    })
+
+    it('should allow the dev frontend by default', () => {
+      delete process.env.CORS_ORIGINS
+      const settings = getSettings()
+
+      expect(isOriginAllowed('http://localhost:1420', settings)).toBe(true)
+    })
+
+    it('should not match non-Tauri origins by default', () => {
+      delete process.env.CORS_ORIGINS
+      const settings = getSettings()
+
+      expect(isOriginAllowed('https://evil.com', settings)).toBe(false)
+      expect(isOriginAllowed('http://malicious.localhost', settings)).toBe(false)
     })
   })
 
@@ -183,7 +241,6 @@ describe('Config Settings', () => {
           oidcIssuer: '',
           betterAuthUrl: 'http://localhost:8000',
           corsOrigins: 'http://localhost:1420',
-          corsOriginRegex: null,
           corsAllowCredentials: true,
           corsAllowMethods: 'GET,POST,PUT,DELETE,PATCH,OPTIONS',
           corsAllowHeaders:
@@ -249,6 +306,140 @@ describe('Config Settings', () => {
       process.env.ALLOW_CUSTOM_AGENTS = 'true'
       const settings = getSettings()
       expect(settings.allowCustomAgents).toBe(true)
+    })
+  })
+
+  describe('Rate limiting settings', () => {
+    const RATE_LIMIT_ENV_KEYS = ['RATE_LIMIT_ENABLED', 'TRUSTED_PROXY'] as const
+
+    let savedEnv: Partial<Record<string, string>>
+
+    beforeEach(() => {
+      clearSettingsCache()
+      savedEnv = {}
+      for (const key of RATE_LIMIT_ENV_KEYS) {
+        if (process.env[key] !== undefined) {
+          savedEnv[key] = process.env[key]
+        }
+      }
+    })
+
+    afterEach(() => {
+      for (const key of RATE_LIMIT_ENV_KEYS) {
+        if (savedEnv[key] !== undefined) {
+          process.env[key] = savedEnv[key]
+        } else {
+          delete process.env[key]
+        }
+      }
+      clearSettingsCache()
+    })
+
+    it('should default rateLimitEnabled to true when env var is unset', () => {
+      delete process.env.RATE_LIMIT_ENABLED
+      const settings = getSettings()
+      expect(settings.rateLimitEnabled).toBe(true)
+    })
+
+    it('should disable rate limiting when RATE_LIMIT_ENABLED is "false"', () => {
+      process.env.RATE_LIMIT_ENABLED = 'false'
+      const settings = getSettings()
+      expect(settings.rateLimitEnabled).toBe(false)
+    })
+
+    it('should keep rate limiting enabled for any value other than "false"', () => {
+      process.env.RATE_LIMIT_ENABLED = 'true'
+      const settings = getSettings()
+      expect(settings.rateLimitEnabled).toBe(true)
+    })
+
+    it('should default trustedProxy to empty string when env var is unset', () => {
+      delete process.env.TRUSTED_PROXY
+      const settings = getSettings()
+      expect(settings.trustedProxy).toBe('')
+    })
+
+    it('should accept "cloudflare" as trustedProxy', () => {
+      process.env.TRUSTED_PROXY = 'cloudflare'
+      const settings = getSettings()
+      expect(settings.trustedProxy).toBe('cloudflare')
+    })
+
+    it('should accept "akamai" as trustedProxy', () => {
+      process.env.TRUSTED_PROXY = 'akamai'
+      const settings = getSettings()
+      expect(settings.trustedProxy).toBe('akamai')
+    })
+
+    it('should lowercase TRUSTED_PROXY value', () => {
+      process.env.TRUSTED_PROXY = 'CLOUDFLARE'
+      const settings = getSettings()
+      expect(settings.trustedProxy).toBe('cloudflare')
+    })
+
+    it('should reject invalid trustedProxy values', () => {
+      process.env.TRUSTED_PROXY = 'nginx'
+      expect(() => getSettings()).toThrow()
+    })
+  })
+
+  describe('isOriginAllowed', () => {
+    it('returns true for exact match', () => {
+      const settings = { corsOrigins: 'http://localhost:1420,https://app.example.com' }
+      expect(isOriginAllowed('https://app.example.com', settings)).toBe(true)
+    })
+
+    it('returns false when origin is not in the list', () => {
+      const settings = { corsOrigins: 'http://localhost:1420' }
+      expect(isOriginAllowed('http://localhost:9999', settings)).toBe(false)
+    })
+
+    it('returns true for explicit Tauri origins in the default config', () => {
+      const settings = { corsOrigins: 'http://localhost:1420,tauri://localhost,http://tauri.localhost' }
+      expect(isOriginAllowed('tauri://localhost', settings)).toBe(true)
+      expect(isOriginAllowed('http://tauri.localhost', settings)).toBe(true)
+    })
+  })
+
+  describe('Swagger settings', () => {
+    let savedEnv: string | undefined
+
+    beforeEach(() => {
+      clearSettingsCache()
+      savedEnv = process.env.SWAGGER_ENABLED
+    })
+
+    afterEach(() => {
+      if (savedEnv !== undefined) {
+        process.env.SWAGGER_ENABLED = savedEnv
+      } else {
+        delete process.env.SWAGGER_ENABLED
+      }
+      clearSettingsCache()
+    })
+
+    it('should default swaggerEnabled to false when env var is unset', () => {
+      delete process.env.SWAGGER_ENABLED
+      const settings = getSettings()
+      expect(settings.swaggerEnabled).toBe(false)
+    })
+
+    it('should enable swagger when SWAGGER_ENABLED is "true"', () => {
+      process.env.SWAGGER_ENABLED = 'true'
+      const settings = getSettings()
+      expect(settings.swaggerEnabled).toBe(true)
+    })
+
+    it('should keep swagger disabled for any value other than "true"', () => {
+      process.env.SWAGGER_ENABLED = 'false'
+      const settings = getSettings()
+      expect(settings.swaggerEnabled).toBe(false)
+    })
+
+    it('should keep swagger disabled when set to empty string', () => {
+      process.env.SWAGGER_ENABLED = ''
+      const settings = getSettings()
+      expect(settings.swaggerEnabled).toBe(false)
     })
   })
 

@@ -17,7 +17,7 @@ const createMockDependencies = (): OAuthDependencies => ({
     // Return null to simulate user cancellation or error
     return null
   },
-  redirectOAuthFlow: async (provider: string) => {
+  redirectOAuthFlow: async (_httpClient, provider) => {
     // Simulate what the real redirectOAuthFlow does before redirecting
     await updateSettings(getDb(), {
       oauth_state: 'mock_state_12345',

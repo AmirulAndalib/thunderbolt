@@ -71,6 +71,9 @@ export default defineConfig({
     alias: {
       '@': path.resolve(__dirname, './src'),
       '@shared': path.resolve(__dirname, './shared'),
+      // Exposes PowerSync internal lib path so our custom SharedWorker can extend
+      // SharedSyncImplementation (not in public exports map).
+      'powersync-web-internal': path.resolve(__dirname, 'node_modules/@powersync/web/lib/src'),
     },
     conditions: ['browser'],
   },
@@ -93,6 +96,19 @@ export default defineConfig({
     watch: {
       // 3. tell vite to ignore watching `src-tauri`
       ignored: ['**/src-tauri/**'],
+    },
+    fs: {
+      strict: true,
+      allow: [
+        path.resolve(__dirname, 'src'),
+        path.resolve(__dirname, 'shared'),
+        path.resolve(__dirname, 'public'),
+        path.resolve(__dirname, 'node_modules'),
+        path.resolve(__dirname, 'dist-isolation'),
+        path.resolve(__dirname, '.storybook'),
+        // Vite's HTML middleware checks checkLoadingAccess() for index.html
+        path.resolve(__dirname, 'index.html'),
+      ],
     },
   },
   optimizeDeps: {
