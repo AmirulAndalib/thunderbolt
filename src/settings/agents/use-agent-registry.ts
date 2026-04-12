@@ -44,7 +44,7 @@ export const mergeRegistryWithInstalled = (
       builtInAgents.push(agent)
     } else if (agent.registryId) {
       installedByRegistryId.set(agent.registryId, agent)
-    } else if (!agent.isSystem && !agent.registryId) {
+    } else if (agent.isSystem === 0 && !agent.registryId) {
       customAgents.push(agent)
     }
     installedById.set(agent.id, agent)
