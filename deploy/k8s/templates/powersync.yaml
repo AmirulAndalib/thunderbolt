@@ -27,6 +27,25 @@ spec:
         app: powersync
     spec:
       {{- include "thunderbolt.imagePullSecrets" . | nindent 6 }}
+      initContainers:
+        - name: wait-for-mongo-rs
+          image: "{{ .Values.mongo.image.repository }}:{{ .Values.mongo.image.tag }}"
+          command:
+            - bash
+            - -c
+            - |
+              until mongosh --host mongo:27017 --eval "db.adminCommand('ping')" > /dev/null 2>&1; do
+                echo "Waiting for mongo..."
+                sleep 2
+              done
+              mongosh --host mongo:27017 --eval '
+                try { rs.status().ok && quit(0) } catch(e) {}
+                rs.initiate({_id: "rs0", version: 1, members: [{_id: 0, host: "mongo-0.mongo:27017"}]})
+              '
+              until mongosh --host mongo:27017 --eval "rs.status().myState === 1" > /dev/null 2>&1; do
+                echo "Waiting for replica set primary..."
+                sleep 2
+              done
       containers:
         - name: powersync
           image: "{{ .Values.powersync.image.repository }}:{{ .Values.powersync.image.tag }}"

@@ -115,7 +115,7 @@ export const createEksCluster = (args: EksArgs) => {
     {
       chart: '../k8s',
       namespace: 'thunderbolt',
-      timeout: 900,
+      skipAwait: true,
       values: {
         appUrl: 'http://localhost',
         imagePullSecrets: args.ghcrToken ? [{ name: 'ghcr-pull' }] : [],
