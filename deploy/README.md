@@ -330,6 +330,14 @@ Deploy to AWS using Pulumi. Supports two platforms from the same project:
 - [Bun](https://bun.sh)
 - A Pulumi account (free tier works)
 
+### Authenticate with Pulumi
+
+```bash
+pulumi login
+```
+
+This opens a browser to sign in with GitHub, Google, or your org's SSO. It's a one-time setup — credentials are cached locally. (CI uses the `PULUMI_ACCESS_TOKEN` secret instead.)
+
 ### Setup
 
 ```bash
@@ -378,17 +386,27 @@ kubectl get svc -n ingress-nginx -o jsonpath="{.items[0].status.loadBalancer.ing
 
 ### Custom Secrets
 
-Override default credentials via Pulumi config:
+All secrets have sensible defaults that work out of the box for dev/demo stacks. For production, override them via Pulumi config — this is a one-time setup per stack:
 
 ```bash
-pulumi config set --secret postgresPassword <password>
-pulumi config set --secret keycloakAdminPassword <password>
-pulumi config set --secret oidcClientSecret <secret>
-pulumi config set --secret powersyncJwtSecret <secret>
-pulumi config set --secret betterAuthSecret <secret>
+pulumi config set --secret postgresPassword <password> -s <stack-name>
+pulumi config set --secret keycloakAdminPassword <password> -s <stack-name>
+pulumi config set --secret oidcClientSecret <secret> -s <stack-name>
+pulumi config set --secret powersyncJwtSecret <secret> -s <stack-name>
+pulumi config set --secret betterAuthSecret <secret> -s <stack-name>
+pulumi config set --secret powersyncDbPassword <password> -s <stack-name>
 ```
 
-If not set, sensible defaults are used (suitable for dev/demo, not production).
+Secrets are stored encrypted in the Pulumi stack config (`Pulumi.<stack>.yaml` in Pulumi Cloud). Once set, every subsequent `pulumi up` — whether from the CLI or GitHub Actions — picks them up automatically. No need to configure them as GitHub secrets.
+
+| Secret | Default | Description |
+|--------|---------|-------------|
+| `postgresPassword` | `postgres` | PostgreSQL admin password |
+| `keycloakAdminPassword` | `admin` | Keycloak admin console password |
+| `oidcClientSecret` | `thunderbolt-enterprise-secret` | OIDC client secret shared between Backend and Keycloak |
+| `powersyncJwtSecret` | `enterprise-powersync-secret` | JWT secret shared between Backend and PowerSync |
+| `betterAuthSecret` | `enterprise-better-auth-secret` | Better Auth session secret |
+| `powersyncDbPassword` | `myhighlyrandompassword` | PowerSync replication role password |
 
 ### Destroy
 
@@ -448,6 +466,23 @@ Deploys (or destroys) a Pulumi stack on AWS.
 **Triggers**:
 - Manual dispatch with form inputs
 - Called by other workflows
+
+**Setting up a new stack for CI**: The workflow uses Pulumi stacks, which are configured once from the CLI and then reused by every workflow run. To deploy a new environment:
+
+```bash
+cd deploy/pulumi
+pulumi stack init prod-acme
+pulumi config set aws:region us-east-1 -s prod-acme
+pulumi config set platform fargate -s prod-acme
+pulumi config set version 0.1.85 -s prod-acme
+pulumi config set --secret ghcrToken <github-pat> -s prod-acme
+
+# Optional: override default credentials for production
+pulumi config set --secret postgresPassword <password> -s prod-acme
+# ... (see Custom Secrets above)
+```
+
+After this one-time setup, trigger the workflow with `stack_name: prod-acme` and it just works.
 
 **Inputs**:
 
