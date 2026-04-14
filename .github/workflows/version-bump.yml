@@ -111,10 +111,16 @@ jobs:
           NIGHTLY_VERSION="${BASE_VERSION}-nightly.$(date -u +%Y%m%d)"
           NIGHTLY_TAG="v${NIGHTLY_VERSION}"
 
-          # Update version files locally
-          node -e "const fs=require('fs'),p=JSON.parse(fs.readFileSync('package.json'));p.version='$NIGHTLY_VERSION';fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n')"
-          sed -i "s/^version = \".*\"/version = \"$NIGHTLY_VERSION\"/" src-tauri/Cargo.toml
-          node -e "const fs=require('fs'),c=JSON.parse(fs.readFileSync('src-tauri/tauri.conf.json'));c.version='$BASE_VERSION';fs.writeFileSync('src-tauri/tauri.conf.json',JSON.stringify(c,null,2)+'\n')"
+          # Validate version format to prevent injection via sed/shell
+          if ! [[ "$NIGHTLY_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$ ]]; then
+            echo "❌ Invalid version format: $NIGHTLY_VERSION"
+            exit 1
+          fi
+
+          # Update version files locally (use env vars instead of string interpolation)
+          NIGHTLY_VERSION="$NIGHTLY_VERSION" node -e "const fs=require('fs'),p=JSON.parse(fs.readFileSync('package.json'));p.version=process.env.NIGHTLY_VERSION;fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n')"
+          sed -i "s/^version = \".*\"/version = \"${NIGHTLY_VERSION}\"/" src-tauri/Cargo.toml
+          BASE_VERSION="$BASE_VERSION" node -e "const fs=require('fs'),c=JSON.parse(fs.readFileSync('src-tauri/tauri.conf.json'));c.version=process.env.BASE_VERSION;fs.writeFileSync('src-tauri/tauri.conf.json',JSON.stringify(c,null,2)+'\n')"
 
           # If a nightly tag for today already exists (re-run / manual trigger),
           # remove the old tag and its GitHub release so we can replace them.
