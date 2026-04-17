@@ -7,6 +7,9 @@ import tailwindcss from '@tailwindcss/vite';
 // https://astro.build/config
 export default defineConfig({
 	site: 'https://thunderbolt.io',
+	redirects: {
+		'/announcing-thunderbolt': '/blog/mozilla-introduces-thunderbolt',
+	},
 	integrations: [
 		react(),
 		starlight({
