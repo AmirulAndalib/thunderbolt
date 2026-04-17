@@ -5,6 +5,7 @@ type Props = {
 	title: string;
 	description?: string;
 	ogImage?: string;
+	ogType?: 'website' | 'article';
 	showBackground?: boolean;
 };
 
@@ -12,6 +13,7 @@ const {
 	title,
 	description = 'News, updates, and insights from the Thunderbolt team.',
 	ogImage = 'https://thunderbolt.io/social.png',
+	ogType = 'website',
 } = Astro.props;
 
 const fullTitle = title === 'Blog' ? 'Thunderbolt — Blog' : `${title} · Thunderbolt`;
@@ -34,7 +36,7 @@ const isDocsActive = pathname.startsWith('/docs');
 		<meta property="og:title" content={fullTitle} />
 		<meta property="og:description" content={description} />
 		<meta property="og:image" content={ogImage} />
-		<meta property="og:type" content="article" />
+		<meta property="og:type" content={ogType} />
 		<meta name="twitter:card" content="summary_large_image" />
 		<meta name="twitter:image" content={ogImage} />
 	</head>

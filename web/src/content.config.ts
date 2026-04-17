@@ -4,10 +4,10 @@ import { docsSchema } from '@astrojs/starlight/schema';
 import { glob } from 'astro/loaders';
 
 export const collections = {
-	// Starlight docs collection (docs.thunderbolt.io)
+	// Starlight docs collection (thunderbolt.io/docs)
 	docs: defineCollection({ loader: docsLoader(), schema: docsSchema() }),
 
-	// Blog collection (blog.thunderbolt.io)
+	// Blog collection (thunderbolt.io/blog)
 	blog: defineCollection({
 		loader: glob({ pattern: '**/*.{md,mdx}', base: './src/content/blog' }),
 		schema: z.object({
