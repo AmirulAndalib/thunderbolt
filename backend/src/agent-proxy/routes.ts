@@ -5,6 +5,11 @@ import { Elysia, t } from 'elysia'
 const proxyTimeoutMs = 30_000
 const maxSseBufferBytes = 10 * 1024 * 1024
 
+/** Max messages queued while upstream WS is CONNECTING. Exceeding closes the client conn with 4005. */
+export const maxPendingMessages = 64
+/** Max total bytes queued while upstream WS is CONNECTING. Exceeding closes the client conn with 4005. */
+export const maxPendingBytes = 256 * 1024
+
 type ElysiaWS = {
   readonly id: string
   send: (data: string | ArrayBuffer) => void
@@ -57,13 +62,33 @@ export const parseClientMessage = (message: unknown): Record<string, unknown> | 
 
 // ── WebSocket relay ──────────────────────────────────────────────────────────
 
-type WsConnectionState = {
+export type WsConnectionState = {
   type: 'websocket'
   upstream: WebSocket
   closed: boolean
+  pendingMessages: string[]
+  pendingBytes: number
 }
 
-const openWsRelay = (ws: ElysiaWS, url: string, apiKey: string | null): WsConnectionState => {
+type WebSocketFactory = (url: string, protocols?: string | string[]) => WebSocket
+
+const defaultWebSocketFactory: WebSocketFactory = (url, protocols) => new WebSocket(url, protocols)
+
+/**
+ * Opens an upstream WebSocket relay bound to the given downstream client `ws`.
+ * Messages sent by the client while the upstream is still CONNECTING are queued
+ * and flushed on `open`; the queue is bounded by {@link maxPendingMessages} and
+ * {@link maxPendingBytes} to prevent unbounded memory growth.
+ *
+ * The `webSocketFactory` parameter allows tests to inject a fake upstream without
+ * touching globals or making real network connections.
+ */
+export const openWsRelay = (
+  ws: ElysiaWS,
+  url: string,
+  apiKey: string | null,
+  webSocketFactory: WebSocketFactory = defaultWebSocketFactory,
+): WsConnectionState => {
   // WS auth via subprotocol header — avoids leaking credentials in URL query params
   const protocols = apiKey ? ['acp', `Bearer.${apiKey}`] : undefined
   // KNOWN LIMITATION: WebSocket upstream connections lack DNS-pinning.
@@ -72,8 +97,24 @@ const openWsRelay = (ws: ElysiaWS, url: string, apiKey: string | null): WsConnec
   // first resolves public then changes to an internal IP between validation
   // and connection could bypass this. HTTP path uses safeFetch with resolveAndValidate
   // for full DNS pinning. TODO: implement createSafeWebSocket for parity.
-  const upstream = new WebSocket(url, protocols)
-  const state: WsConnectionState = { type: 'websocket', upstream, closed: false }
+  const upstream = webSocketFactory(url, protocols)
+  const state: WsConnectionState = {
+    type: 'websocket',
+    upstream,
+    closed: false,
+    pendingMessages: [],
+    pendingBytes: 0,
+  }
+
+  upstream.addEventListener('open', () => {
+    if (state.closed) return
+    for (const msg of state.pendingMessages) {
+      if (state.closed) break
+      upstream.send(msg)
+    }
+    state.pendingMessages.length = 0
+    state.pendingBytes = 0
+  })
 
   upstream.addEventListener('message', (event) => {
     if (state.closed) return
@@ -85,6 +126,8 @@ const openWsRelay = (ws: ElysiaWS, url: string, apiKey: string | null): WsConnec
     state.closed = true
     connections.delete(ws.id)
     ws.close(event.code ?? 1000, event.reason ?? '')
+    state.pendingMessages.length = 0
+    state.pendingBytes = 0
   })
 
   upstream.addEventListener('error', (event) => {
@@ -94,9 +137,42 @@ const openWsRelay = (ws: ElysiaWS, url: string, apiKey: string | null): WsConnec
     state.closed = true
     connections.delete(ws.id)
     ws.close(4005, 'Upstream agent connection error')
+    state.pendingMessages.length = 0
+    state.pendingBytes = 0
   })
 
   return state
+}
+
+/**
+ * Handles a client message destined for an upstream WebSocket relay.
+ * If the upstream is OPEN, forwards immediately. If CONNECTING, queues the message
+ * within {@link maxPendingMessages}/{@link maxPendingBytes} bounds; exceeding the
+ * bounds closes the downstream client with code 4005. CLOSING/CLOSED is a silent drop.
+ */
+export const handleWsMessage = (ws: ElysiaWS, message: unknown, state: WsConnectionState): void => {
+  const data = typeof message === 'string' ? message : JSON.stringify(message)
+  if (state.upstream.readyState === WebSocket.OPEN) {
+    state.upstream.send(data)
+    return
+  }
+  if (state.upstream.readyState !== WebSocket.CONNECTING) {
+    // CLOSING or CLOSED — message has no destination, drop silently
+    return
+  }
+  // CONNECTING — queue with bounds
+  const byteLen = Buffer.byteLength(data)
+  if (state.pendingMessages.length >= maxPendingMessages || state.pendingBytes + byteLen > maxPendingBytes) {
+    console.warn('[agent-proxy] Upstream connection backlog exceeded, closing')
+    state.closed = true
+    connections.delete(ws.id)
+    state.pendingMessages.length = 0
+    state.pendingBytes = 0
+    ws.close(4005, 'Upstream connection backlog exceeded')
+    return
+  }
+  state.pendingMessages.push(data)
+  state.pendingBytes += byteLen
 }
 
 // ── HTTP/SSE relay ───────────────────────────────────────────────────────────
@@ -240,6 +316,11 @@ export const handleHttpMessage = async (
       body: JSON.stringify(msg),
       signal: ac.signal,
     })
+    // Headers have arrived — the initial timeout's job (bounding connect + headers time)
+    // is done. Clearing here prevents a long-running SSE stream from being aborted mid-stream
+    // at the 30s mark. Stream cancellation still works via `state.closed` checks in the loop
+    // and via `activeAborts` iteration on WS close.
+    clearTimeout(timeout)
 
     const connId = response.headers.get('Acp-Connection-Id')
     if (connId) state.connectionId = connId
@@ -349,10 +430,7 @@ export const createAgentProxyRoutes = () => {
       if (!state || state.closed) return
 
       if (state.type === 'websocket') {
-        const data = typeof message === 'string' ? message : JSON.stringify(message)
-        if (state.upstream.readyState === WebSocket.OPEN) {
-          state.upstream.send(data)
-        }
+        handleWsMessage(ws, message, state)
         return
       }
 

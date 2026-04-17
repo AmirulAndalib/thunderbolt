@@ -1,15 +1,20 @@
 import type { ConsoleSpies } from '@/test-utils/console-spies'
 import { setupConsoleSpy } from '@/test-utils/console-spies'
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test'
+import { afterAll, beforeAll, beforeEach, describe, expect, it, spyOn } from 'bun:test'
 import {
   classifyMessage,
   clearConnections,
   createAgentProxyRoutes,
   handleHttpMessage,
+  handleWsMessage,
   type HttpConnectionState,
+  maxPendingBytes,
+  maxPendingMessages,
+  openWsRelay,
   parseApiKey,
   parseClientMessage,
   parseSSEStream,
+  type WsConnectionState,
 } from './routes'
 import { clearTickets, consumeWsTicket, createWsTicket } from '@/auth/ws-ticket'
 
@@ -415,6 +420,60 @@ describe('handleHttpMessage', () => {
     expect(payload.id).toBe('abc-123')
   })
 
+  it('clears the initial connect timeout once response headers arrive (long SSE streams not aborted)', async () => {
+    const ws = createFakeDownstream()
+    const state = createHttpState()
+
+    // Build a ReadableStream that emits SSE events across multiple turns of the
+    // microtask queue. Without FIX 1, the 30s initial connect timeout would still
+    // be armed during streaming and fire on slow upstreams; after FIX 1 it is
+    // cleared the moment fetchImpl resolves (headers received).
+    const encoder = new TextEncoder()
+    let enqueuedDuringStreaming = false
+    const body = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        controller.enqueue(encoder.encode('data: {"chunk":1}\n\n'))
+        await new Promise((resolve) => queueMicrotask(() => resolve(undefined)))
+        enqueuedDuringStreaming = true
+        controller.enqueue(encoder.encode('data: {"chunk":2}\n\n'))
+        controller.close()
+      },
+    })
+
+    let capturedSignal: AbortSignal | undefined
+    const fakeFetch: (input: string | URL | Request, init?: RequestInit) => Promise<Response> = async (_url, init) => {
+      capturedSignal = init?.signal as AbortSignal
+      return new Response(body, { status: 200, headers: { 'Content-Type': 'text/event-stream' } })
+    }
+
+    // Spy on clearTimeout to confirm FIX 1: the initial timer is cleared as
+    // soon as fetchImpl resolves, not only in the `finally` block.
+    const clearSpy = spyOn(globalThis, 'clearTimeout')
+    const before = clearSpy.mock.calls.length
+
+    await handleHttpMessage(
+      asElysiaWs(ws),
+      JSON.stringify({ jsonrpc: '2.0', method: 'session/prompt', id: 1 }),
+      state,
+      fakeFetch,
+    )
+
+    const clearCalls = clearSpy.mock.calls.length - before
+    clearSpy.mockRestore()
+
+    // Both chunks streamed through without an AbortError surfacing from the loop.
+    const messages = ws.sentMessages.map((m) => JSON.parse(m))
+    expect(messages).toEqual([{ chunk: 1 }, { chunk: 2 }])
+    expect(enqueuedDuringStreaming).toBe(true)
+    // The signal was never aborted — the initial timeout did not fire.
+    expect(capturedSignal?.aborted).toBe(false)
+    // clearTimeout fires twice: once after fetchImpl resolves (the FIX 1 call)
+    // and once in the finally block. If FIX 1 regressed, we'd see only 1 call.
+    expect(clearCalls).toBe(2)
+    // activeAborts was cleaned up.
+    expect(state.activeAborts.size).toBe(0)
+  })
+
   it('aborts in-flight notification POSTs when close aborts activeAborts', async () => {
     const ws = createMockWs()
     const state = createHttpState()
@@ -440,5 +499,239 @@ describe('handleHttpMessage', () => {
 
     expect(capturedSignal?.aborted).toBe(true)
     expect(state.activeAborts.size).toBe(0)
+  })
+})
+
+// ── WS relay queue/flush tests ──────────────────────────────────────────────
+
+type FakeUpstreamListeners = {
+  open: Array<() => void>
+  message: Array<(event: { data: string | ArrayBuffer }) => void>
+  close: Array<(event: { code?: number; reason?: string }) => void>
+  error: Array<(event: ErrorEvent) => void>
+}
+
+type FakeUpstreamWs = {
+  readyState: number
+  sentMessages: string[]
+  closeCalls: number
+  listeners: FakeUpstreamListeners
+  addEventListener: (type: 'open' | 'message' | 'close' | 'error', listener: (event: never) => void) => void
+  send: (data: string) => void
+  close: () => void
+  fireOpen: () => void
+  fireClose: (code?: number, reason?: string) => void
+  fireError: (message?: string) => void
+}
+
+const createFakeUpstream = (): FakeUpstreamWs => {
+  const listeners: FakeUpstreamListeners = { open: [], message: [], close: [], error: [] }
+  const fake: FakeUpstreamWs = {
+    readyState: WebSocket.CONNECTING,
+    sentMessages: [],
+    closeCalls: 0,
+    listeners,
+    addEventListener(type, listener) {
+      // Narrow to the right listener list by event type.
+      if (type === 'open') listeners.open.push(listener as () => void)
+      else if (type === 'message') listeners.message.push(listener as (event: { data: string | ArrayBuffer }) => void)
+      else if (type === 'close') listeners.close.push(listener as (event: { code?: number; reason?: string }) => void)
+      else if (type === 'error') listeners.error.push(listener as (event: ErrorEvent) => void)
+    },
+    send(data) {
+      this.sentMessages.push(data)
+    },
+    close() {
+      this.closeCalls += 1
+      this.readyState = WebSocket.CLOSED
+    },
+    fireOpen() {
+      this.readyState = WebSocket.OPEN
+      for (const l of listeners.open) l()
+    },
+    fireClose(code, reason) {
+      this.readyState = WebSocket.CLOSED
+      for (const l of listeners.close) l({ code, reason })
+    },
+    fireError(message) {
+      for (const l of listeners.error) l({ message: message ?? 'upstream error' } as ErrorEvent)
+    },
+  }
+  return fake
+}
+
+type FakeDownstreamWs = {
+  id: string
+  sentMessages: string[]
+  closeCalls: Array<{ code?: number; reason?: string }>
+  send: (data: string | ArrayBuffer) => void
+  close: (code?: number, reason?: string) => void
+}
+
+const createFakeDownstream = (): FakeDownstreamWs => ({
+  id: `ds-${Math.random().toString(36).slice(2)}`,
+  sentMessages: [],
+  closeCalls: [],
+  send(data) {
+    this.sentMessages.push(typeof data === 'string' ? data : String(data))
+  },
+  close(code, reason) {
+    this.closeCalls.push({ code, reason })
+  },
+})
+
+const createWsState = (upstream: FakeUpstreamWs): WsConnectionState => ({
+  type: 'websocket',
+  upstream: upstream as unknown as WebSocket,
+  closed: false,
+  pendingMessages: [],
+  pendingBytes: 0,
+})
+
+type WsFactory = Parameters<typeof openWsRelay>[3]
+type ElysiaWsArg = Parameters<typeof openWsRelay>[0]
+
+const asElysiaWs = (ws: FakeDownstreamWs): ElysiaWsArg => ws as unknown as ElysiaWsArg
+const asWebSocketFactory = (fake: FakeUpstreamWs): WsFactory => (() => fake as unknown as WebSocket) as WsFactory
+
+describe('handleWsMessage (queue and flush)', () => {
+  it('forwards immediately when upstream is OPEN', () => {
+    const upstream = createFakeUpstream()
+    upstream.readyState = WebSocket.OPEN
+    const ws = createFakeDownstream()
+    const state = createWsState(upstream)
+
+    handleWsMessage(asElysiaWs(ws), '{"method":"ping"}', state)
+
+    expect(upstream.sentMessages).toEqual(['{"method":"ping"}'])
+    expect(state.pendingMessages).toEqual([])
+    expect(state.pendingBytes).toBe(0)
+  })
+
+  it('queues messages while upstream is CONNECTING', () => {
+    const upstream = createFakeUpstream()
+    const ws = createFakeDownstream()
+    const state = createWsState(upstream)
+
+    handleWsMessage(asElysiaWs(ws), '{"id":1}', state)
+    handleWsMessage(asElysiaWs(ws), '{"id":2}', state)
+
+    expect(upstream.sentMessages).toEqual([])
+    expect(state.pendingMessages).toEqual(['{"id":1}', '{"id":2}'])
+    expect(state.pendingBytes).toBe(Buffer.byteLength('{"id":1}') + Buffer.byteLength('{"id":2}'))
+    expect(ws.closeCalls).toEqual([])
+  })
+
+  it('stringifies non-string messages before queueing', () => {
+    const upstream = createFakeUpstream()
+    const ws = createFakeDownstream()
+    const state = createWsState(upstream)
+
+    handleWsMessage(asElysiaWs(ws), { method: 'init', id: 7 }, state)
+
+    expect(state.pendingMessages).toEqual(['{"method":"init","id":7}'])
+  })
+
+  it('silently drops messages when upstream is CLOSING or CLOSED', () => {
+    const upstream = createFakeUpstream()
+    upstream.readyState = WebSocket.CLOSED
+    const ws = createFakeDownstream()
+    const state = createWsState(upstream)
+
+    handleWsMessage(asElysiaWs(ws), '{"id":1}', state)
+
+    expect(upstream.sentMessages).toEqual([])
+    expect(state.pendingMessages).toEqual([])
+    expect(ws.closeCalls).toEqual([])
+  })
+
+  it('closes the downstream with 4005 when pending message count exceeds bound', () => {
+    const upstream = createFakeUpstream()
+    const ws = createFakeDownstream()
+    const state = createWsState(upstream)
+
+    // Fill to the bound. Each msg is tiny so byte bound is not hit.
+    for (let i = 0; i < maxPendingMessages; i++) {
+      handleWsMessage(asElysiaWs(ws), `{"i":${i}}`, state)
+    }
+    expect(state.pendingMessages).toHaveLength(maxPendingMessages)
+    expect(ws.closeCalls).toEqual([])
+
+    // One more — should overflow and close.
+    handleWsMessage(asElysiaWs(ws), '{"overflow":true}', state)
+
+    expect(ws.closeCalls).toEqual([{ code: 4005, reason: 'Upstream connection backlog exceeded' }])
+    expect(state.closed).toBe(true)
+    expect(state.pendingMessages).toEqual([])
+    expect(state.pendingBytes).toBe(0)
+  })
+
+  it('closes the downstream with 4005 when pending bytes exceed bound', () => {
+    const upstream = createFakeUpstream()
+    const ws = createFakeDownstream()
+    const state = createWsState(upstream)
+
+    // One payload that alone exceeds the byte bound.
+    const big = 'x'.repeat(maxPendingBytes + 1)
+    handleWsMessage(asElysiaWs(ws), big, state)
+
+    expect(ws.closeCalls).toEqual([{ code: 4005, reason: 'Upstream connection backlog exceeded' }])
+    expect(state.closed).toBe(true)
+    expect(state.pendingMessages).toEqual([])
+    expect(state.pendingBytes).toBe(0)
+  })
+})
+
+describe('openWsRelay (lifecycle)', () => {
+  it('flushes queued messages in order when upstream fires open', () => {
+    const fake = createFakeUpstream()
+    const ws = createFakeDownstream()
+
+    const state = openWsRelay(asElysiaWs(ws), 'wss://agent.example.com/ws', null, asWebSocketFactory(fake))
+
+    handleWsMessage(asElysiaWs(ws), '{"id":1}', state)
+    handleWsMessage(asElysiaWs(ws), '{"id":2}', state)
+    expect(fake.sentMessages).toEqual([])
+
+    fake.fireOpen()
+
+    expect(fake.sentMessages).toEqual(['{"id":1}', '{"id":2}'])
+    expect(state.pendingMessages).toEqual([])
+    expect(state.pendingBytes).toBe(0)
+  })
+
+  it('drains pending queue when upstream closes before opening', () => {
+    const fake = createFakeUpstream()
+    const ws = createFakeDownstream()
+
+    const state = openWsRelay(asElysiaWs(ws), 'wss://agent.example.com/ws', null, asWebSocketFactory(fake))
+
+    handleWsMessage(asElysiaWs(ws), '{"id":1}', state)
+    handleWsMessage(asElysiaWs(ws), '{"id":2}', state)
+    expect(state.pendingMessages).toHaveLength(2)
+
+    fake.fireClose(1006, 'upstream gone')
+
+    expect(state.pendingMessages).toEqual([])
+    expect(state.pendingBytes).toBe(0)
+    expect(state.closed).toBe(true)
+    expect(ws.closeCalls).toEqual([{ code: 1006, reason: 'upstream gone' }])
+  })
+
+  it('drains pending queue when upstream errors before opening', () => {
+    const fake = createFakeUpstream()
+    const ws = createFakeDownstream()
+
+    const state = openWsRelay(asElysiaWs(ws), 'wss://agent.example.com/ws', null, asWebSocketFactory(fake))
+
+    handleWsMessage(asElysiaWs(ws), '{"id":1}', state)
+    expect(state.pendingMessages).toHaveLength(1)
+
+    fake.fireError('handshake failed')
+
+    expect(state.pendingMessages).toEqual([])
+    expect(state.pendingBytes).toBe(0)
+    expect(state.closed).toBe(true)
+    expect(ws.closeCalls).toEqual([{ code: 4005, reason: 'Upstream agent connection error' }])
   })
 })
