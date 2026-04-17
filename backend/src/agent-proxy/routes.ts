@@ -36,18 +36,20 @@ export const parseApiKey = (authMethod: string | null): string | null => {
   return apiKey
 }
 
+const isPlainObject = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value) && !(value instanceof Uint8Array)
+
 /**
  * Parses an incoming WS client message into a JSON-RPC object, or `null` if invalid.
  * Accepts strings (parsed as JSON), already-deserialized plain objects (passed through),
- * and rejects binary frames (Uint8Array/Buffer), arrays, and primitives.
+ * and rejects binary frames (Uint8Array/Buffer), arrays, primitives, and malformed JSON.
  */
 export const parseClientMessage = (message: unknown): Record<string, unknown> | null => {
-  if (typeof message === 'object' && message !== null && !Array.isArray(message) && !(message instanceof Uint8Array)) {
-    return message as Record<string, unknown>
-  }
+  if (isPlainObject(message)) return message
   if (typeof message !== 'string') return null
   try {
-    return JSON.parse(message) as Record<string, unknown>
+    const parsed = JSON.parse(message) as unknown
+    return isPlainObject(parsed) ? parsed : null
   } catch {
     return null
   }
@@ -282,9 +284,8 @@ export const clearConnections = (): void => {
 // ── Routes ───────────────────────────────────────────────────────────────────
 
 export const createAgentProxyRoutes = () => {
-  return new Elysia({ prefix: '/agent-proxy' }).ws('/ws/:agentId', {
+  return new Elysia({ prefix: '/agent-proxy' }).ws('/ws', {
     query: t.Object({ ticket: t.Optional(t.String()) }),
-    params: t.Object({ agentId: t.String() }),
 
     open: (ws: ElysiaWS) => {
       try {

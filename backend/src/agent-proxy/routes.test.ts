@@ -106,6 +106,26 @@ describe('parseClientMessage', () => {
     expect(parseClientMessage(42)).toBeNull()
     expect(parseClientMessage(true)).toBeNull()
   })
+
+  it('returns null for JSON primitive string', () => {
+    expect(parseClientMessage('"hello"')).toBeNull()
+  })
+
+  it('returns null for JSON primitive number', () => {
+    expect(parseClientMessage('42')).toBeNull()
+  })
+
+  it('returns null for JSON primitive boolean', () => {
+    expect(parseClientMessage('true')).toBeNull()
+  })
+
+  it('returns null for JSON null', () => {
+    expect(parseClientMessage('null')).toBeNull()
+  })
+
+  it('returns null for JSON array string', () => {
+    expect(parseClientMessage('[1,2,3]')).toBeNull()
+  })
 })
 
 describe('WS ticket integration', () => {
@@ -268,9 +288,7 @@ type WsRoute = {
 
 const getOpenHandler = () => {
   const app = createAgentProxyRoutes()
-  const route = (app.router.history as WsRoute[]).find(
-    (r) => r.method === 'WS' && r.path === '/agent-proxy/ws/:agentId',
-  )
+  const route = (app.router.history as WsRoute[]).find((r) => r.method === 'WS' && r.path === '/agent-proxy/ws')
   if (!route) throw new Error('WS route not registered')
   return route.hooks.open
 }
@@ -278,9 +296,7 @@ const getOpenHandler = () => {
 describe('createAgentProxyRoutes (open handler)', () => {
   it('registers the agent-proxy ws route', () => {
     const app = createAgentProxyRoutes()
-    const route = (app.router.history as WsRoute[]).find(
-      (r) => r.method === 'WS' && r.path === '/agent-proxy/ws/:agentId',
-    )
+    const route = (app.router.history as WsRoute[]).find((r) => r.method === 'WS' && r.path === '/agent-proxy/ws')
     expect(route).toBeDefined()
   })
 
