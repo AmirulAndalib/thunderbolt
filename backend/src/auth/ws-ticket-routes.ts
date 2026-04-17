@@ -2,8 +2,8 @@ import type { Auth } from '@/auth/elysia-plugin'
 import { createAuthMacro } from '@/auth/elysia-plugin'
 import { getSettings } from '@/config/settings'
 import { safeErrorHandler } from '@/middleware/error-handling'
-import { Elysia } from 'elysia'
-import { createWsTicket } from './ws-ticket'
+import { type AnyElysia, Elysia } from 'elysia'
+import { createWsTicket, TicketQuotaError } from './ws-ticket'
 
 type RawPayload = { url?: string; authMethod?: string } | undefined
 
@@ -53,30 +53,40 @@ const buildTicketPayload = (raw: RawPayload): PayloadResult => {
 /**
  * Creates the WebSocket ticket endpoint.
  * POST /ws-ticket — returns a short-lived ticket for authenticating WebSocket connections.
- * Requires a valid session (cookie-based auth).
+ * Requires a valid session (cookie-based auth). Optionally IP rate-limited via `ipRateLimit`.
  */
-export const createWsTicketRoutes = (auth: Auth) => {
-  return new Elysia({ prefix: '/ws-ticket' })
-    .onError(safeErrorHandler)
-    .use(createAuthMacro(auth))
-    .post(
-      '/',
-      async ({ user, request, set }) => {
-        const body = await parseJsonBody(request)
-        if (body === null) {
-          set.status = 400
-          return { error: 'Invalid JSON body' }
-        }
+export const createWsTicketRoutes = (auth: Auth, ipRateLimit?: AnyElysia) => {
+  const app = new Elysia({ prefix: '/ws-ticket' }).onError(safeErrorHandler).use(createAuthMacro(auth))
+  if (ipRateLimit) {
+    app.use(ipRateLimit)
+  }
+  return app.post(
+    '/',
+    async ({ user, request, set }) => {
+      const body = await parseJsonBody(request)
+      if (body === null) {
+        set.status = 400
+        return { error: 'Invalid JSON body' }
+      }
 
-        const result = buildTicketPayload(body.payload)
-        if (!result.ok) {
-          set.status = result.status
-          return { error: result.error }
-        }
+      const result = buildTicketPayload(body.payload)
+      if (!result.ok) {
+        set.status = result.status
+        return { error: result.error }
+      }
 
+      try {
         const ticket = createWsTicket(user.id, result.payload)
         return { ticket }
-      },
-      { auth: true },
-    )
+      } catch (err) {
+        if (err instanceof TicketQuotaError) {
+          set.status = 429
+          set.headers['Retry-After'] = String(err.retryAfterSecs)
+          return { error: 'Ticket quota exceeded' }
+        }
+        throw err
+      }
+    },
+    { auth: true },
+  )
 }

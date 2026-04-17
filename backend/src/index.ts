@@ -108,7 +108,7 @@ export const createApp = async (deps?: AppDeps) => {
       .use(createEncryptionRoutes(auth, database))
       .use(createAccountRoutes(auth, database))
       .use(createAgentsRoutes())
-      .use(createWsTicketRoutes(auth))
+      .use(createWsTicketRoutes(auth, createAuthIpRateLimit(database, ipRateLimitSettings)))
       .use(createAgentProxyRoutes())
   )
 }

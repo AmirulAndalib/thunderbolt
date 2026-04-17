@@ -5,7 +5,7 @@ import { setupConsoleSpy } from '@/test-utils/console-spies'
 import { mockAuth, mockAuthUnauthenticated } from '@/test-utils/mock-auth'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, spyOn } from 'bun:test'
 import { Elysia } from 'elysia'
-import { clearTickets } from './ws-ticket'
+import { clearTickets, createWsTicket } from './ws-ticket'
 import { createWsTicketRoutes } from './ws-ticket-routes'
 
 const ENV_KEYS = ['ALLOW_CUSTOM_AGENTS'] as const
@@ -182,5 +182,19 @@ describe('ws-ticket-routes', () => {
       }),
     )
     expect(res.status).toBe(401)
+  })
+
+  it('returns 429 with Retry-After when TicketQuotaError is thrown', async () => {
+    const warnSpy = spyOn(console, 'warn').mockImplementation(() => {})
+    // Fill the per-user quota for the mockAuth user id
+    for (let i = 0; i < 20; i++) {
+      createWsTicket('test-user')
+    }
+    const res = await post({})
+    expect(res.status).toBe(429)
+    expect(res.headers.get('Retry-After')).toBe('30')
+    const json = (await res.json()) as { error: string }
+    expect(json.error).toBe('Ticket quota exceeded')
+    warnSpy.mockRestore()
   })
 })

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, spyOn } from 'bun:test'
-import { clearTickets, consumeWsTicket, createWsTicket } from './ws-ticket'
+import { clearTickets, consumeWsTicket, createWsTicket, TicketQuotaError } from './ws-ticket'
 
 describe('ws-ticket', () => {
   beforeEach(() => {
@@ -34,7 +34,7 @@ describe('ws-ticket', () => {
   })
 
   it('generates unique tickets', () => {
-    const tickets = new Set(Array.from({ length: 100 }, () => createWsTicket('user-1')))
+    const tickets = new Set(Array.from({ length: 100 }, (_, i) => createWsTicket(`user-${i}`)))
     expect(tickets.size).toBe(100)
   })
 
@@ -84,5 +84,53 @@ describe('ws-ticket', () => {
     const result = consumeWsTicket(lastTicket)
     expect(result).not.toBeNull()
     expect(result!.userId).toBe('user-5999')
+  })
+
+  it('throws TicketQuotaError after 20 tickets for same user', () => {
+    const warnSpy = spyOn(console, 'warn').mockImplementation(() => {})
+    const userId = 'user-quota'
+    const tickets: string[] = []
+    for (let i = 0; i < 20; i++) {
+      tickets.push(createWsTicket(userId))
+    }
+    expect(tickets).toHaveLength(20)
+    expect(() => createWsTicket(userId)).toThrow(TicketQuotaError)
+    warnSpy.mockRestore()
+  })
+
+  it('TicketQuotaError has retryAfterSecs = 30', () => {
+    const warnSpy = spyOn(console, 'warn').mockImplementation(() => {})
+    const userId = 'user-retry'
+    for (let i = 0; i < 20; i++) {
+      createWsTicket(userId)
+    }
+    try {
+      createWsTicket(userId)
+      throw new Error('expected TicketQuotaError')
+    } catch (err) {
+      expect(err).toBeInstanceOf(TicketQuotaError)
+      expect((err as TicketQuotaError).retryAfterSecs).toBe(30)
+    }
+    warnSpy.mockRestore()
+  })
+
+  it('different users have independent quotas', () => {
+    for (let i = 0; i < 20; i++) {
+      createWsTicket('user-a')
+    }
+    // user-a is at quota, user-b should still be able to create
+    expect(() => createWsTicket('user-b')).not.toThrow()
+  })
+
+  it('expired tickets do not count toward quota', () => {
+    const nowSpy = spyOn(Date, 'now').mockReturnValue(1_000_000)
+    for (let i = 0; i < 20; i++) {
+      createWsTicket('user-expired')
+    }
+    // Advance past TTL
+    nowSpy.mockReturnValue(1_000_000 + 31_000)
+    // Old tickets expired → should be able to create more
+    expect(() => createWsTicket('user-expired')).not.toThrow()
+    nowSpy.mockRestore()
   })
 })
