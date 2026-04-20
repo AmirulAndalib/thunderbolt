@@ -5,6 +5,17 @@ type HeaderProps = {
   banner?: ReactNode
 }
 
+const NavLinks = () => (
+  <nav className="flex items-center gap-6 font-mono text-sm font-bold uppercase tracking-wider text-[#344054]">
+    <a href="/blog" className="transition-opacity hover:opacity-70">
+      Blog
+    </a>
+    <a href="/docs" className="transition-opacity hover:opacity-70">
+      Docs
+    </a>
+  </nav>
+)
+
 export const Header = ({ action, banner }: HeaderProps) => (
   <header className={`fixed inset-x-0 top-0 z-50 ${banner ? '' : 'bg-white/20 backdrop-blur-[32px]'}`}>
     {banner}
@@ -13,7 +24,10 @@ export const Header = ({ action, banner }: HeaderProps) => (
         <img src="/enterprise/thunderbolt-logo.png" alt="Thunderbolt" className="size-[23px]" />
         <span className="text-xl font-medium leading-7 tracking-[-0.4px] text-[#101828]">Thunderbolt</span>
       </a>
-      {action && <div className="hidden md:block">{action}</div>}
+      <div className="hidden items-center gap-8 md:flex">
+        <NavLinks />
+        {action}
+      </div>
     </div>
   </header>
 )

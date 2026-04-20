@@ -1,0 +1,97 @@
+---
+/**
+ * Custom Starlight Header — mirrors the marketing/BaseLayout nav so
+ * /docs shares the same look as /, /blog, and /contact.
+ */
+import config from 'virtual:starlight/user-config';
+import Search from 'virtual:starlight/components/Search';
+
+const shouldRenderSearch =
+	config.pagefind ||
+	config.components.Search !== '@astrojs/starlight/components/Search.astro';
+---
+
+<div class="tb-header">
+	<a href="/" class="brand">
+		<img src="/enterprise/thunderbolt-logo.png" alt="" width="23" height="23" />
+		<span>Thunderbolt</span>
+	</a>
+
+	<div class="search-slot sl-flex print:hidden">
+		{shouldRenderSearch && <Search />}
+	</div>
+
+	<nav class="nav-links">
+		<a href="/blog" class="nav-link">Blog</a>
+		<a href="/docs" class="nav-link active">Docs</a>
+		<a
+			href="https://github.com/thunderbird/thunderbolt"
+			class="nav-link"
+			target="_blank"
+			rel="noopener noreferrer"
+		>
+			GitHub
+		</a>
+	</nav>
+</div>
+
+<style>
+	.tb-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 1.5rem;
+		height: 100%;
+		width: 100%;
+	}
+
+	.brand {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		font-weight: 500;
+		font-size: 1.125rem;
+		letter-spacing: -0.015em;
+		color: var(--tb-text);
+		text-decoration: none;
+		flex-shrink: 0;
+	}
+
+	.search-slot {
+		flex: 1;
+		min-width: 0;
+		justify-content: center;
+	}
+
+	.nav-links {
+		display: flex;
+		gap: 0.125rem;
+		align-items: center;
+		flex-shrink: 0;
+	}
+
+	.nav-link {
+		color: var(--tb-text-muted);
+		text-decoration: none;
+		font-size: 0.875rem;
+		padding: 0.5rem 0.75rem;
+		transition:
+			color 0.15s,
+			background 0.15s;
+	}
+
+	.nav-link:hover {
+		color: var(--tb-text);
+	}
+
+	.nav-link.active {
+		color: var(--tb-text);
+	}
+
+	/* On narrow viewports collapse to just brand + search trigger */
+	@media (max-width: 50rem) {
+		.nav-links {
+			display: none;
+		}
+	}
+</style>

@@ -283,3 +283,35 @@ nav.sidebar > ul > li > span.large {
 	box-shadow: 0 2px 12px rgba(16, 24, 40, 0.06);
 	transform: translateY(-1px);
 }
+
+/* ─── Search UI: square borders to match marketing surface ─── */
+site-search button[data-open-modal] {
+	border-radius: 0 !important;
+}
+site-search dialog {
+	border-radius: 0 !important;
+}
+#starlight__search {
+	--sl-search-corners: 0;
+	--pagefind-ui-border-radius: 0;
+}
+#starlight__search .pagefind-ui__search-input,
+#starlight__search .pagefind-ui__form,
+#starlight__search .pagefind-ui__result-title,
+#starlight__search .pagefind-ui__result-nested,
+#starlight__search .pagefind-ui__result-inner > :first-child,
+#starlight__search .pagefind-ui__result-inner > :last-child,
+#starlight__search .pagefind-ui__result-tags,
+#starlight__search .pagefind-ui__filter-panel button,
+#starlight__search .pagefind-ui__button {
+	border-radius: 0 !important;
+}
+/* Hairline input border in brand color */
+#starlight__search .pagefind-ui__search-input {
+	border: 1px solid var(--tb-border);
+}
+#starlight__search .pagefind-ui__search-input:focus-visible {
+	outline: 1px solid var(--tb-text-secondary);
+	outline-offset: -1px;
+	border-color: var(--tb-text-secondary);
+}

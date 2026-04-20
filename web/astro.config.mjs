@@ -21,15 +21,9 @@ export default defineConfig({
 			},
 			favicon: '/favicon.png',
 			components: {
+				Header: './src/components/starlight/Header.astro',
 				ThemeSelect: './src/components/starlight/ThemeSelect.astro',
 			},
-			social: [
-				{
-					icon: 'github',
-					label: 'GitHub',
-					href: 'https://github.com/thunderbird/thunderbolt',
-				},
-			],
 			sidebar: [
 				{
 					label: 'Getting Started',

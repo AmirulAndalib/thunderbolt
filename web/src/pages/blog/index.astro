@@ -12,12 +12,7 @@ const posts = (await getCollection('blog'))
 	description="News, updates, and insights from the Thunderbolt team."
 >
 	<header class="intro">
-		<p class="eyebrow">Thunderbolt Blog</p>
-		<h1>Notes from the team</h1>
-		<p class="subtitle">
-			Product updates, engineering posts, and context on where Thunderbolt is
-			headed.
-		</p>
+		<h1>Thunderbolt Blog</h1>
 	</header>
 
 	<ul class="post-list">
@@ -58,31 +53,13 @@ const posts = (await getCollection('blog'))
 		border-bottom: 1px solid var(--tb-border);
 	}
 
-	.eyebrow {
-		font-family: var(--tb-font-mono);
-		text-transform: uppercase;
-		letter-spacing: 0.08em;
-		font-size: 0.6875rem;
-		font-weight: 700;
-		color: var(--tb-text-muted);
-		margin: 0 0 1rem;
-	}
-
 	h1 {
 		font-size: clamp(2rem, 4vw, 2.5rem);
 		line-height: 1.15;
 		letter-spacing: -0.025em;
 		font-weight: 500;
 		color: var(--tb-text);
-		margin: 0 0 0.75rem;
-	}
-
-	.subtitle {
-		color: var(--tb-text-muted);
-		font-size: 1.0625rem;
-		line-height: 1.55;
 		margin: 0;
-		max-width: 38rem;
 	}
 
 	.post-list {
