@@ -46,7 +46,7 @@ const extractSource = (pre) => {
 const renderMermaid = async () => {
   const blocks = document.querySelectorAll('pre[data-language="mermaid"]');
   if (blocks.length === 0) return;
-  mermaid.initialize({ startOnLoad: false, theme: 'default', securityLevel: 'loose' });
+  mermaid.initialize({ startOnLoad: false, theme: 'default' });
   blocks.forEach((pre, i) => {
     const src = extractSource(pre);
     const host = document.createElement('div');
