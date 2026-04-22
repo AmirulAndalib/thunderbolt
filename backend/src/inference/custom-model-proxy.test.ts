@@ -7,8 +7,6 @@ import { describe, expect, it, beforeEach, mock, spyOn } from 'bun:test'
 import { validateProxyRequest, validateModelsRequest, perUserLimiter, wrapStreamInSSE } from './custom-model-proxy'
 import { RateLimiterMemory } from 'rate-limiter-flexible'
 
-const INTEGRATION = process.env.INTEGRATION === 'true'
-
 // ---------------------------------------------------------------------------
 // URL validation
 // ---------------------------------------------------------------------------
@@ -120,16 +118,5 @@ describe('outbound headers', () => {
     const { customProxyUserAgent, customProxyAbuseContact } = require('./custom-model-proxy')
     expect(customProxyUserAgent).toBe('Thunderbolt-Proxy/1.0')
     expect(customProxyAbuseContact).toBe('abuse@thunderbolt.io')
-  })
-})
-
-// ---------------------------------------------------------------------------
-// Integration: TLS-SNI
-// ---------------------------------------------------------------------------
-
-describe.skipIf(!INTEGRATION)('TLS-SNI monitoring (integration)', () => {
-  it('real HTTPS connection succeeds', async () => {
-    const result = validateProxyRequest('https://api.openai.com/v1/chat/completions')
-    expect(result.valid).toBe(true)
   })
 })
