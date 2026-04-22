@@ -200,12 +200,12 @@ const resolveModelFetchError = async (error: unknown): Promise<string> => {
 
   if (typeof error === 'object' && error !== null && 'response' in error) {
     const response = (error as { response?: Response }).response
-    if (!response) return 'Server responded with an unknown error.'
+    if (!response) { return 'Server responded with an unknown error.' }
 
     try {
       const envelope = await response.clone().json() as ProxyErrorEnvelope
       const mapped = proxyErrorMessages[envelope.error.code]
-      if (mapped) return mapped
+      if (mapped) { return mapped }
       return envelope.error.message
     } catch {
       // not a proxy envelope — fall through to status text
@@ -214,7 +214,7 @@ const resolveModelFetchError = async (error: unknown): Promise<string> => {
     return `Server responded with status ${response.status} ${response.statusText}`
   }
 
-  if (error instanceof Error && error.message) return error.message
+  if (error instanceof Error && error.message) { return error.message }
   return 'Failed to load models'
 }
 
