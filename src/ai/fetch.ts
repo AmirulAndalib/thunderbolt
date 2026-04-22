@@ -108,13 +108,14 @@ export const createModel = async (modelConfig: Model, httpClient?: HttpClient) =
       // backend cannot proxy to user-local endpoints). For cloud URLs on web, route through
       // the backend proxy so the API key never travels browser → third-party directly.
       // On Tauri, createCustomProxyFetch delegates to the existing Tauri native-fetch path.
-      const customFetch = (!httpClient || isLocalhostUrl(modelConfig.url))
-        ? fetch
-        : createCustomProxyFetch({
-            baseURL: modelConfig.url,
-            upstreamAuth: modelConfig.apiKey || undefined,
-            httpClient,
-          })
+      const customFetch =
+        !httpClient || isLocalhostUrl(modelConfig.url)
+          ? fetch
+          : createCustomProxyFetch({
+              baseURL: modelConfig.url,
+              upstreamAuth: modelConfig.apiKey || undefined,
+              httpClient,
+            })
       const openaiCompatible = createOpenAICompatible({
         name: 'custom',
         baseURL: modelConfig.url,

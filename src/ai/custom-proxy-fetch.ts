@@ -42,12 +42,7 @@ export const createCustomProxyFetch = (opts: CreateCustomProxyFetchOpts): typeof
       return globalThis.fetch(input, init)
     }
 
-    const inputUrl =
-      typeof input === 'string'
-        ? input
-        : input instanceof URL
-          ? input.toString()
-          : input.url
+    const inputUrl = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
 
     // Parse the body from the SDK's RequestInit.
     // The Vercel AI SDK always provides a JSON string or ReadableStream body.
@@ -64,11 +59,12 @@ export const createCustomProxyFetch = (opts: CreateCustomProxyFetchOpts): typeof
 
     // Detect streaming intent: body.stream === true OR Accept header is text/event-stream.
     const bodyStream = (parsedBody as Record<string, unknown> | undefined)?.stream === true
-    const acceptHeader = init?.headers instanceof Headers
-      ? init.headers.get('accept')
-      : typeof init?.headers === 'object' && init?.headers !== null
-        ? (init.headers as Record<string, string>)['accept'] ?? (init.headers as Record<string, string>)['Accept']
-        : undefined
+    const acceptHeader =
+      init?.headers instanceof Headers
+        ? init.headers.get('accept')
+        : typeof init?.headers === 'object' && init?.headers !== null
+          ? ((init.headers as Record<string, string>)['accept'] ?? (init.headers as Record<string, string>)['Accept'])
+          : undefined
     const isStream = bodyStream || (typeof acceptHeader === 'string' && acceptHeader.includes('text/event-stream'))
 
     const proxyRequest: CustomModelProxyRequest = {
@@ -82,7 +78,7 @@ export const createCustomProxyFetch = (opts: CreateCustomProxyFetchOpts): typeof
     // Forward the AbortSignal from the AI SDK so in-flight requests can be cancelled.
     const signal = init?.signal ?? undefined
 
-    return httpClient.post('v1/custom-model/proxy', {
+    return httpClient.post('custom-model/proxy', {
       json: proxyRequest,
       signal,
     })

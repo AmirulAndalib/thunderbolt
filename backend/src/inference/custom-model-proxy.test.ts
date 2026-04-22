@@ -108,4 +108,3 @@ describe('validateProxyRequest — upstreamAuth not echoed back', () => {
     expect(JSON.stringify(result)).not.toContain('upstreamAuth')
   })
 })
-

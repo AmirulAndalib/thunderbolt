@@ -67,8 +67,15 @@ const isAllowedContentType = (contentType: string | null): boolean => {
 }
 
 const hopByHop = new Set([
-  'connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization',
-  'te', 'trailers', 'transfer-encoding', 'upgrade', 'set-cookie',
+  'connection',
+  'keep-alive',
+  'proxy-authenticate',
+  'proxy-authorization',
+  'te',
+  'trailers',
+  'transfer-encoding',
+  'upgrade',
+  'set-cookie',
 ])
 
 const stripHopByHop = (headers: Headers): Headers => {
@@ -133,7 +140,9 @@ export const validateProxyRequest = (
 export const validateModelsRequest = (
   baseUrl: string,
   upstreamAuth?: string,
-): { valid: true; modelsUrl: string } | { valid: false; code: ProxyErrorEnvelope['error']['code']; message: string } => {
+):
+  | { valid: true; modelsUrl: string }
+  | { valid: false; code: ProxyErrorEnvelope['error']['code']; message: string } => {
   const normalized = baseUrl.replace(/\/+$/, '')
   const modelsUrl = `${normalized}/models`
   const result = validateProxyRequest(modelsUrl, upstreamAuth)
@@ -231,7 +240,7 @@ const safeFetchWrapped = async (url: string, init?: RequestInit): Promise<Respon
 // ---------------------------------------------------------------------------
 
 export const createCustomModelProxyRoutes = (auth: Auth) =>
-  new Elysia({ prefix: '/v1/custom-model' })
+  new Elysia({ prefix: '/custom-model' })
     .use(createAuthMacro(auth))
     .post(
       '/proxy',
@@ -266,7 +275,11 @@ export const createCustomModelProxyRoutes = (auth: Auth) =>
           const client = getCustomModelClient(baseUrl, upstreamAuth ?? 'no-key', safeFetchWrapped as typeof fetch)
 
           const typedClient = client as {
-            chat: { completions: { create: (params: ChatCompletionCreateParamsBase & { stream: boolean }) => Promise<unknown> } }
+            chat: {
+              completions: {
+                create: (params: ChatCompletionCreateParamsBase & { stream: boolean }) => Promise<unknown>
+              }
+            }
           }
 
           if (stream) {
@@ -396,9 +409,9 @@ export const createCustomModelProxyRoutes = (auth: Auth) =>
           return new Response(JSON.stringify(parsed), {
             status: 200,
             headers: {
+              ...Object.fromEntries(cleanedHeaders.entries()),
               'Content-Type': 'application/json',
               'Cache-Control': 'no-store',
-              ...Object.fromEntries(cleanedHeaders.entries()),
             },
           })
         } catch (err) {
