@@ -12,8 +12,6 @@ type CreateCustomProxyFetchOpts = {
   httpClient: HttpClient
 }
 
-type ProxyFetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
-
 /**
  * Returns a `fetch`-compatible function bound to a specific custom model endpoint.
  *
@@ -28,10 +26,10 @@ type ProxyFetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Resp
  * The Vercel AI SDK will invoke it with the full target URL (e.g. `${baseURL}/chat/completions`)
  * and a `RequestInit` whose body is the JSON-encoded chat completion request.
  */
-export const createCustomProxyFetch = (opts: CreateCustomProxyFetchOpts): ProxyFetch => {
+export const createCustomProxyFetch = (opts: CreateCustomProxyFetchOpts): typeof fetch => {
   const { baseURL, upstreamAuth, httpClient } = opts
 
-  return async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+  const proxyFetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     // Tauri path — delegate unchanged so Tauri native-fetch transport is preserved (US-003).
     // Lazy import avoids loading src/lib/fetch.ts (which calls getDb()) at module init time.
     if (isTauri()) {
@@ -89,4 +87,9 @@ export const createCustomProxyFetch = (opts: CreateCustomProxyFetchOpts): ProxyF
       signal,
     })
   }
+
+  // Bun's `fetch` type expects a `preconnect` method.
+  proxyFetch.preconnect = () => Promise.resolve(false)
+
+  return proxyFetch
 }
