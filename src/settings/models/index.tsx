@@ -32,12 +32,27 @@ import { useQuery } from '@powersync/tanstack-react-query'
 import { toCompilableQuery } from '@powersync/drizzle-driver'
 import { generateText } from 'ai'
 import { http } from '@/lib/http'
-import type { CustomModelModelsRequest, CustomModelModelsResponse, ProxyErrorEnvelope } from '@shared/custom-model-proxy'
+import type {
+  CustomModelModelsRequest,
+  CustomModelModelsResponse,
+  ProxyErrorEnvelope,
+} from '@shared/custom-model-proxy'
 import { Check, Cpu, Loader2, Lock, Plus, Trash2, X } from 'lucide-react'
 import { useEffect, useMemo, useReducer, useRef, type KeyboardEvent } from 'react'
 import { useForm } from 'react-hook-form'
 import { v7 as uuidv7 } from 'uuid'
 import { z } from 'zod'
+
+/** Normalizes a base URL to always end with `/v1`. */
+const normalizeToV1 = (rawUrl: string): string => {
+  if (rawUrl.endsWith('/v1')) {
+    return rawUrl
+  }
+  if (rawUrl.endsWith('/')) {
+    return `${rawUrl}v1`
+  }
+  return `${rawUrl}/v1`
+}
 
 type AvailableModel = {
   id: string
@@ -200,12 +215,16 @@ const resolveModelFetchError = async (error: unknown): Promise<string> => {
 
   if (typeof error === 'object' && error !== null && 'response' in error) {
     const response = (error as { response?: Response }).response
-    if (!response) { return 'Server responded with an unknown error.' }
+    if (!response) {
+      return 'Server responded with an unknown error.'
+    }
 
     try {
-      const envelope = await response.clone().json() as ProxyErrorEnvelope
+      const envelope = (await response.clone().json()) as ProxyErrorEnvelope
       const mapped = proxyErrorMessages[envelope.error.code]
-      if (mapped) { return mapped }
+      if (mapped) {
+        return mapped
+      }
       return envelope.error.message
     } catch {
       // not a proxy envelope — fall through to status text
@@ -214,7 +233,9 @@ const resolveModelFetchError = async (error: unknown): Promise<string> => {
     return `Server responded with status ${response.status} ${response.statusText}`
   }
 
-  if (error instanceof Error && error.message) { return error.message }
+  if (error instanceof Error && error.message) {
+    return error.message
+  }
   return 'Failed to load models'
 }
 
@@ -356,7 +377,7 @@ export default function ModelsPage() {
         description: null,
         userId: null,
       }
-      const model = await createModel(modelConfigWithDefaults)
+      const model = await createModel(modelConfigWithDefaults, httpClient)
 
       // Test with a minimal prompt - race against timeout
       const { text } = await Promise.race([
@@ -429,7 +450,7 @@ export default function ModelsPage() {
           if (url) {
             if (isLocalhostUrl(url)) {
               // Localhost: direct fetch — backend can't reach the user's loopback
-              const baseUrl = url.endsWith('/v1') ? url : url.endsWith('/') ? `${url}v1` : `${url}/v1`
+              const baseUrl = normalizeToV1(url)
               endpoint = `${baseUrl}/models`
               if (apiKey) {
                 headers = { Authorization: `Bearer ${apiKey}` }
@@ -437,28 +458,30 @@ export default function ModelsPage() {
             } else {
               // Non-localhost: route through backend proxy to avoid CORS
               const body: CustomModelModelsRequest = {
-                baseUrl: url,
+                baseUrl: normalizeToV1(url),
                 ...(apiKey ? { upstreamAuth: apiKey } : {}),
               }
               const proxyResponse = await httpClient
-                .post('v1/custom-model/models', { json: body })
+                .post('custom-model/models', { json: body })
                 .json<CustomModelModelsResponse>()
 
-              const models = (proxyResponse.data || []).map((m) => {
-                const supportedParams = Array.isArray(m['supported_parameters'])
-                  ? (m['supported_parameters'] as string[])
-                  : []
-                const supportsToolsByParams =
-                  supportedParams.includes('tools') || supportedParams.includes('tool_choice')
-                const supportsTools = m['supports_tools'] === true || supportsToolsByParams
-                return {
-                  id: String(m['id']),
-                  name: m['name'] != null ? String(m['name']) : undefined,
-                  created: m['created'] != null ? Number(m['created']) : undefined,
-                  owned_by: m['owned_by'] != null ? String(m['owned_by']) : undefined,
-                  supports_tools: supportsTools,
-                }
-              }).sort((a, b) => a.id.localeCompare(b.id))
+              const models = (proxyResponse.data || [])
+                .map((m) => {
+                  const supportedParams = Array.isArray(m['supported_parameters'])
+                    ? (m['supported_parameters'] as string[])
+                    : []
+                  const supportsToolsByParams =
+                    supportedParams.includes('tools') || supportedParams.includes('tool_choice')
+                  const supportsTools = m['supports_tools'] === true || supportsToolsByParams
+                  return {
+                    id: String(m['id']),
+                    name: m['name'] != null ? String(m['name']) : undefined,
+                    created: m['created'] != null ? Number(m['created']) : undefined,
+                    owned_by: m['owned_by'] != null ? String(m['owned_by']) : undefined,
+                    supports_tools: supportsTools,
+                  }
+                })
+                .sort((a, b) => a.id.localeCompare(b.id))
               dispatch({ type: 'FETCH_MODELS_SUCCESS', models })
               return
             }
@@ -536,15 +559,17 @@ export default function ModelsPage() {
         if (provider === 'custom' || apiKey) {
           const response = await http.get(endpoint, { headers, fetch }).json<{ data: AvailableModel[] }>()
 
-          const models = (response.data || []).map((m) => {
-            const supportsToolsByParams =
-              Array.isArray(m.supported_parameters) &&
-              (m.supported_parameters.includes('tools') || m.supported_parameters.includes('tool_choice'))
+          const models = (response.data || [])
+            .map((m) => {
+              const supportsToolsByParams =
+                Array.isArray(m.supported_parameters) &&
+                (m.supported_parameters.includes('tools') || m.supported_parameters.includes('tool_choice'))
 
-            const supportsTools = m.supports_tools === true || supportsToolsByParams
+              const supportsTools = m.supports_tools === true || supportsToolsByParams
 
-            return { ...m, supports_tools: supportsTools }
-          }).sort((a, b) => a.id.localeCompare(b.id))
+              return { ...m, supports_tools: supportsTools }
+            })
+            .sort((a, b) => a.id.localeCompare(b.id))
 
           // Store all models for search functionality
           dispatch({ type: 'FETCH_MODELS_SUCCESS', models })
