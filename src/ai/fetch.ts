@@ -19,6 +19,8 @@ import { createAnthropic } from '@ai-sdk/anthropic'
 import { createOpenAI } from '@ai-sdk/openai'
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible'
 import type { HttpClient } from '@/lib/http'
+import { createCustomProxyFetch } from '@/ai/custom-proxy-fetch'
+import { isLocalhostUrl } from '@/ai/is-localhost-url'
 import { v7 as uuidv7 } from 'uuid'
 
 // Currently @openrouter/ai-sdk-provider is NOT compatible with Vercel AI SDK v5. If you enable this, you will get the following error:
@@ -59,7 +61,7 @@ type AiFetchStreamingResponseOptions = {
   httpClient: HttpClient
 }
 
-export const createModel = async (modelConfig: Model) => {
+export const createModel = async (modelConfig: Model, httpClient?: HttpClient) => {
   switch (modelConfig.provider) {
     case 'thunderbolt': {
       const db = getDb()
@@ -102,11 +104,22 @@ export const createModel = async (modelConfig: Model) => {
       if (!modelConfig.url) {
         throw new Error('No URL provided for custom provider')
       }
+      // For localhost URLs on web, use globalThis.fetch directly (CORS carve-out — the
+      // backend cannot proxy to user-local endpoints). For cloud URLs on web, route through
+      // the backend proxy so the API key never travels browser → third-party directly.
+      // On Tauri, createCustomProxyFetch delegates to the existing Tauri native-fetch path.
+      const customFetch = (!httpClient || isLocalhostUrl(modelConfig.url))
+        ? fetch
+        : createCustomProxyFetch({
+            baseURL: modelConfig.url,
+            upstreamAuth: modelConfig.apiKey || undefined,
+            httpClient,
+          })
       const openaiCompatible = createOpenAICompatible({
         name: 'custom',
         baseURL: modelConfig.url,
         apiKey: modelConfig.apiKey || undefined,
-        fetch,
+        fetch: customFetch,
       })
       return openaiCompatible(modelConfig.model)
     }
@@ -239,7 +252,7 @@ export const aiFetchStreamingResponse = async ({
   const activeNudges = getNudgeMessagesFromProfile(profile, modeName)
 
   try {
-    const baseModel = await createModel(model)
+    const baseModel = await createModel(model, httpClient)
 
     const wrappedModel = wrapLanguageModel({
       providerId: model.provider,
