@@ -444,13 +444,12 @@ export default function ModelsPage() {
                 .post('v1/custom-model/models', { json: body })
                 .json<CustomModelModelsResponse>()
 
-              let models = (proxyResponse.data || []).map((m) => {
+              const models = (proxyResponse.data || []).map((m) => {
+                const supportedParams = Array.isArray(m['supported_parameters'])
+                  ? (m['supported_parameters'] as string[])
+                  : []
                 const supportsToolsByParams =
-                  Array.isArray(m['supported_parameters']) &&
-                  (
-                    (m['supported_parameters'] as string[]).includes('tools') ||
-                    (m['supported_parameters'] as string[]).includes('tool_choice')
-                  )
+                  supportedParams.includes('tools') || supportedParams.includes('tool_choice')
                 const supportsTools = m['supports_tools'] === true || supportsToolsByParams
                 return {
                   id: String(m['id']),
@@ -459,9 +458,7 @@ export default function ModelsPage() {
                   owned_by: m['owned_by'] != null ? String(m['owned_by']) : undefined,
                   supports_tools: supportsTools,
                 }
-              })
-
-              models = models.sort((a, b) => a.id.localeCompare(b.id))
+              }).sort((a, b) => a.id.localeCompare(b.id))
               dispatch({ type: 'FETCH_MODELS_SUCCESS', models })
               return
             }
@@ -539,19 +536,15 @@ export default function ModelsPage() {
         if (provider === 'custom' || apiKey) {
           const response = await http.get(endpoint, { headers, fetch }).json<{ data: AvailableModel[] }>()
 
-          let models = (response.data || []).map((m) => {
+          const models = (response.data || []).map((m) => {
             const supportsToolsByParams =
-              Array.isArray((m as any).supported_parameters) &&
-              ((m as any).supported_parameters.includes('tools') ||
-                (m as any).supported_parameters.includes('tool_choice'))
+              Array.isArray(m.supported_parameters) &&
+              (m.supported_parameters.includes('tools') || m.supported_parameters.includes('tool_choice'))
 
-            const supportsTools = (m as any).supports_tools === true || supportsToolsByParams
+            const supportsTools = m.supports_tools === true || supportsToolsByParams
 
             return { ...m, supports_tools: supportsTools }
-          })
-
-          // Sort models alphabetically by ID
-          models = models.sort((a, b) => a.id.localeCompare(b.id))
+          }).sort((a, b) => a.id.localeCompare(b.id))
 
           // Store all models for search functionality
           dispatch({ type: 'FETCH_MODELS_SUCCESS', models })
@@ -560,8 +553,6 @@ export default function ModelsPage() {
     } catch (error) {
       console.error('Failed to fetch models:', error)
       dispatch({ type: 'FETCH_MODELS_FAILURE', error: await resolveModelFetchError(error) })
-    } finally {
-      // Nothing to do in finally; state set in success/failure actions
     }
   }
 
@@ -614,7 +605,7 @@ export default function ModelsPage() {
       }
 
       // Set tool usage based on model support
-      const supportsTools = (model as any)?.supports_tools === true
+      const supportsTools = model?.supports_tools === true
       form.setValue('toolUsage', supportsTools, { shouldDirty: false })
     }
   }
@@ -712,7 +703,7 @@ export default function ModelsPage() {
       return true
     }
     const model = allAvailableModels.find((m) => m.id === selectedModelId)
-    return (model as any)?.supports_tools === true
+    return model?.supports_tools === true
   })()
 
   const watchedModel = form.watch('model')

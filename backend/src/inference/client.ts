@@ -2,6 +2,7 @@ import { getSettings } from '@/config/settings'
 import { getPostHogClient, isPostHogConfigured } from '@/posthog/client'
 import { OpenAI as PostHogOpenAI } from '@posthog/ai'
 import OpenAI from 'openai'
+import { customProxyUserAgent, customProxyAbuseContact } from './custom-model-proxy'
 
 export type InferenceProvider = 'fireworks' | 'thunderbolt' | 'mistral' | 'anthropic'
 
@@ -204,33 +205,21 @@ export const clearInferenceClientCache = () => {
 /**
  * Get an OpenAI-compatible client for a user-supplied custom endpoint.
  *
- * Unlike the other client factories, this is NOT cached — each user request
- * supplies its own baseUrl + apiKey combination. Do not add caching here.
- *
- * @param baseUrl   - Base URL of the custom endpoint (e.g. "https://my-llm.example.com/v1")
- * @param apiKey    - User's API key for the custom endpoint (may be a placeholder if not required)
- * @param fetchFn   - Optional fetch function override (primarily for testing + SSRF-safe fetch injection)
- *
- * The `fetchFn` parameter is how SSRF protection is injected:
- *   getCustomModelClient(baseUrl, apiKey, createSafeFetch(globalThis.fetch))
- *
- * defaultHeaders ensure every upstream request carries the mandatory
- * Thunderbolt-Proxy User-Agent and X-Abuse-Contact.
+ * Unlike other factories, this is NOT cached — each call gets its own client.
+ * Inject `fetchFn` (e.g. `createSafeFetch(globalThis.fetch)`) for SSRF safety.
+ * Every request carries mandatory `User-Agent` and `X-Abuse-Contact` defaultHeaders.
  */
 export const getCustomModelClient = (
   baseUrl: string,
   apiKey: string,
   fetchFn?: typeof fetch,
 ): OpenAI | PostHogOpenAI => {
-  const userAgent = 'Thunderbolt-Proxy/1.0'
-  const abuseContact = 'abuse@thunderbolt.io'
-
   const params = {
     apiKey,
     baseURL: baseUrl,
     defaultHeaders: {
-      'User-Agent': userAgent,
-      'X-Abuse-Contact': abuseContact,
+      'User-Agent': customProxyUserAgent,
+      'X-Abuse-Contact': customProxyAbuseContact,
     },
     ...(fetchFn && { fetch: fetchFn }),
   }

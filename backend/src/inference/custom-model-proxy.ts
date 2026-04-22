@@ -28,11 +28,11 @@ import { getCustomModelClient } from './client'
 // Config
 // ---------------------------------------------------------------------------
 
-const MAX_BYTES = 52_428_800 // 50 MB
-const REQUEST_TIMEOUT_MS = 300_000 // 5 min
-const RATE_LIMIT_USER = 60 // per minute
-const USER_AGENT = 'Thunderbolt-Proxy/1.0'
-const ABUSE_CONTACT = 'abuse@thunderbolt.io'
+const maxBytes = 52_428_800 // 50 MB
+const requestTimeoutMs = 300_000 // 5 min
+const rateLimitUser = 60 // per minute
+export const customProxyUserAgent = 'Thunderbolt-Proxy/1.0'
+export const customProxyAbuseContact = 'abuse@thunderbolt.io'
 
 // ---------------------------------------------------------------------------
 // Rate limiter
@@ -42,7 +42,7 @@ const ABUSE_CONTACT = 'abuse@thunderbolt.io'
 // to multiple instances, switch to RateLimiterPostgres.
 export const perUserLimiter = new RateLimiterMemory({
   keyPrefix: 'custom-proxy-user',
-  points: RATE_LIMIT_USER,
+  points: rateLimitUser,
   duration: 60,
 })
 
@@ -58,22 +58,22 @@ const proxyError = (code: ProxyErrorEnvelope['error']['code'], message: string, 
 
 const isPrintableAscii = (value: string): boolean => /^[\x20-\x7E]+$/.test(value)
 
-const ALLOWED_CONTENT_TYPES = ['application/json', 'text/event-stream']
+const allowedContentTypes = ['application/json', 'text/event-stream']
 
 const isAllowedContentType = (contentType: string | null): boolean => {
   if (!contentType) return false
   const mime = contentType.split(';')[0].trim().toLowerCase()
-  return ALLOWED_CONTENT_TYPES.includes(mime)
+  return allowedContentTypes.includes(mime)
 }
 
-const HOP_BY_HOP = new Set([
+const hopByHop = new Set([
   'connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization',
   'te', 'trailers', 'transfer-encoding', 'upgrade', 'set-cookie',
 ])
 
 const stripHopByHop = (headers: Headers): Headers => {
   const out = new Headers(headers)
-  for (const key of HOP_BY_HOP) out.delete(key)
+  for (const key of hopByHop) out.delete(key)
   return out
 }
 
@@ -167,7 +167,7 @@ export const wrapStreamInSSE = (
           const encoded = encoder.encode(line)
 
           totalBytes += encoded.byteLength
-          if (totalBytes > MAX_BYTES) {
+          if (totalBytes > maxBytes) {
             controller.error(new ProxyRequestError('BODY_TOO_LARGE', 'Response exceeded 50 MB cap.', 502))
             return
           }
@@ -257,7 +257,7 @@ export const createCustomModelProxyRoutes = (auth: Auth) =>
 
         const abortController = new AbortController()
         request.signal?.addEventListener('abort', () => abortController.abort())
-        AbortSignal.timeout(REQUEST_TIMEOUT_MS).addEventListener('abort', () => abortController.abort())
+        AbortSignal.timeout(requestTimeoutMs).addEventListener('abort', () => abortController.abort())
 
         try {
           const completionBody = body.body as ChatCompletionCreateParamsBase
@@ -320,8 +320,8 @@ export const createCustomModelProxyRoutes = (auth: Auth) =>
         }
 
         const outboundHeaders: Record<string, string> = {
-          'User-Agent': USER_AGENT,
-          'X-Abuse-Contact': ABUSE_CONTACT,
+          'User-Agent': customProxyUserAgent,
+          'X-Abuse-Contact': customProxyAbuseContact,
           Accept: 'application/json',
         }
 
@@ -362,7 +362,7 @@ export const createCustomModelProxyRoutes = (auth: Auth) =>
             const { done, value } = await reader.read()
             if (done) break
             totalBytes += value.byteLength
-            if (totalBytes > MAX_BYTES) {
+            if (totalBytes > maxBytes) {
               await reader.cancel()
               return proxyError('BODY_TOO_LARGE', 'Upstream response exceeded 50 MB cap.', 502)
             }

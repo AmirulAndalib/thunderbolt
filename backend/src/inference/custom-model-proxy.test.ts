@@ -10,24 +10,18 @@ import { RateLimiterMemory } from 'rate-limiter-flexible'
 const INTEGRATION = process.env.INTEGRATION === 'true'
 
 // ---------------------------------------------------------------------------
-// Auth
-// ---------------------------------------------------------------------------
-
-describe('auth', () => {
-  it('validateProxyRequest rejects non-HTTPS', () => {
-    const result = validateProxyRequest('ftp://example.com/v1/chat/completions')
-    expect(result.valid).toBe(false)
-    if (!result.valid) expect(result.code).toBe('INVALID_URL')
-  })
-})
-
-// ---------------------------------------------------------------------------
 // URL validation
 // ---------------------------------------------------------------------------
 
 describe('validateProxyRequest — invalid scheme', () => {
   it('rejects ftp://', () => {
     const result = validateProxyRequest('ftp://example.com/v1/chat/completions')
+    expect(result.valid).toBe(false)
+    if (!result.valid) expect(result.code).toBe('INVALID_URL')
+  })
+
+  it('rejects http://', () => {
+    const result = validateProxyRequest('http://example.com/v1/chat/completions')
     expect(result.valid).toBe(false)
     if (!result.valid) expect(result.code).toBe('INVALID_URL')
   })
@@ -104,22 +98,16 @@ describe('wrapStreamInSSE — body cap', () => {
 })
 
 // ---------------------------------------------------------------------------
-// No API key in logs
+// No API key in response types
 // ---------------------------------------------------------------------------
 
-describe('log redaction — proxy module does not log upstreamAuth', () => {
-  it('audit entry type has no upstreamAuth field', () => {
-    // The AuditEntry type in the module (verified by TypeScript) does not include
-    // upstreamAuth or Authorization fields. This test documents the contract.
-    const entry = {
-      user_id: 'u1',
-      target_host: 'api.example.com',
-      duration_ms: 100,
-    }
-    const serialized = JSON.stringify(entry)
-    expect(serialized).not.toContain('upstreamAuth')
-    expect(serialized).not.toContain('authorization')
-    expect(serialized).not.toContain('sk-')
+describe('validateProxyRequest — upstreamAuth not echoed back', () => {
+  it('success result does not contain upstreamAuth', () => {
+    const result = validateProxyRequest('https://api.openai.com/v1/chat/completions', 'sk-secret-key')
+    expect(result.valid).toBe(true)
+    // The success result must not leak the upstream auth back to the caller.
+    expect(JSON.stringify(result)).not.toContain('sk-secret-key')
+    expect(JSON.stringify(result)).not.toContain('upstreamAuth')
   })
 })
 
@@ -128,9 +116,10 @@ describe('log redaction — proxy module does not log upstreamAuth', () => {
 // ---------------------------------------------------------------------------
 
 describe('outbound headers', () => {
-  it('User-Agent and X-Abuse-Contact constants are non-empty', () => {
-    expect('Thunderbolt-Proxy/1.0').toBeTruthy()
-    expect('abuse@thunderbolt.io').toBeTruthy()
+  it('exported proxy identity constants have expected values', () => {
+    const { customProxyUserAgent, customProxyAbuseContact } = require('./custom-model-proxy')
+    expect(customProxyUserAgent).toBe('Thunderbolt-Proxy/1.0')
+    expect(customProxyAbuseContact).toBe('abuse@thunderbolt.io')
   })
 })
 
