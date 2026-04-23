@@ -76,6 +76,9 @@ const hopByHop = new Set([
   'transfer-encoding',
   'upgrade',
   'set-cookie',
+  // Body-describing headers lose meaning after we re-serialize the upstream body.
+  'content-encoding',
+  'content-length',
 ])
 
 const stripHopByHop = (headers: Headers): Headers => {
@@ -295,7 +298,7 @@ export const createCustomModelProxyRoutes = (auth: Auth) =>
           }
 
           const completion = await typedClient.chat.completions.create({ ...completionBody, stream: false })
-          return new Response(JSON.stringify({ data: completion }), {
+          return new Response(JSON.stringify(completion), {
             status: 200,
             headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
           })

@@ -8,10 +8,6 @@ export type CustomModelProxyRequest = {
   stream: boolean
 }
 
-export type CustomModelProxyResponse = {
-  data: unknown
-}
-
 export type CustomModelModelsRequest = {
   baseUrl: string
   upstreamAuth?: string
