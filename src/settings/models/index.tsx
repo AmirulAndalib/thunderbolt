@@ -43,17 +43,6 @@ import { useForm } from 'react-hook-form'
 import { v7 as uuidv7 } from 'uuid'
 import { z } from 'zod'
 
-/** Normalizes a base URL to always end with `/v1`. */
-const normalizeToV1 = (rawUrl: string): string => {
-  if (rawUrl.endsWith('/v1')) {
-    return rawUrl
-  }
-  if (rawUrl.endsWith('/')) {
-    return `${rawUrl}v1`
-  }
-  return `${rawUrl}/v1`
-}
-
 type AvailableModel = {
   id: string
   name?: string
@@ -450,15 +439,14 @@ export default function ModelsPage() {
           if (url) {
             if (isLocalhostUrl(url)) {
               // Localhost: direct fetch — backend can't reach the user's loopback
-              const baseUrl = normalizeToV1(url)
-              endpoint = `${baseUrl}/models`
+              endpoint = `${url}/models`
               if (apiKey) {
                 headers = { Authorization: `Bearer ${apiKey}` }
               }
             } else {
               // Non-localhost: route through backend proxy to avoid CORS
               const body: CustomModelModelsRequest = {
-                baseUrl: normalizeToV1(url),
+                baseUrl: url,
                 ...(apiKey ? { upstreamAuth: apiKey } : {}),
               }
               const proxyResponse = await httpClient
