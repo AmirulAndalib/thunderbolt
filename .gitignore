@@ -74,3 +74,6 @@ public/@powersync/**
 
 # Pulumi stack configs (stack-specific, not shared)
 Pulumi.*.yaml
+
+# Astro
+.astro/
