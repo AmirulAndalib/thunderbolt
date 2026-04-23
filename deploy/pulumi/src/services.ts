@@ -246,7 +246,10 @@ export const createServices = (args: ServiceArgs) => {
           { name: 'KC_BOOTSTRAP_ADMIN_PASSWORD', value: args.secrets.keycloakAdminPassword },
           { name: 'KC_HTTP_PORT', value: '8080' },
           { name: 'KC_HOSTNAME_URL', value: args.publicUrls.auth },
-          { name: 'KC_HTTP_RELATIVE_PATH', value: '/auth' },
+          { name: 'KC_HOSTNAME_BACKCHANNEL_DYNAMIC', value: 'true' },
+          // Trust X-Forwarded-Proto from Cloudflare/ALB so Keycloak emits https:// URLs
+          // even though the origin listener is HTTP (Cloudflare Flexible mode).
+          { name: 'KC_PROXY_HEADERS', value: 'xforwarded' },
         ],
         portMappings: [{ containerPort: 8080 }],
         logConfiguration: logConfig('keycloak'),
