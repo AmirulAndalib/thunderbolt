@@ -142,6 +142,19 @@ jobs:
           labels: |
             org.opencontainers.image.source=${{ env.IMAGE_SOURCE }}
 
+      - name: Build and push marketing
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: deploy/docker/marketing.Dockerfile
+          push: true
+          no-cache: true
+          tags: |
+            ${{ env.IMAGE_PREFIX }}/thunderbolt-marketing:${{ steps.version.outputs.version }}
+            ${{ steps.version.outputs.publish_latest == 'true' && format('{0}/thunderbolt-marketing:latest', env.IMAGE_PREFIX) || '' }}
+          labels: |
+            org.opencontainers.image.source=${{ env.IMAGE_SOURCE }}
+
       # -- Package and push Helm chart (skipped for preview builds) --
 
       - name: Update chart version
