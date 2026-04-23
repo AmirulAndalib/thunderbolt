@@ -1,0 +1,67 @@
+name: Preview Environment (Internal PRs)
+
+# Creates an ephemeral preview stack on AWS Fargate + a Cloudflare subdomain for each
+# pull request opened from a branch in this repo. Fork PRs are explicitly not supported
+# and are silently skipped via the head-repo discriminator below.
+#
+# Trigger chain:
+#   pull_request (opened/synchronize/reopened, targeting main)
+#     -> enterprise-publish.yml (builds images tagged pr-{N}-{sha})
+#     -> enterprise-deploy.yml (pulumi up, stack=preview-pr-{N}, subdomain=thunderbolt-pr-{N}.preview.thunderbolt.io)
+#     -> sticky PR comment with the URL
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+
+concurrency:
+  group: preview-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write       # GHCR image push
+  id-token: write       # AWS OIDC federation for Pulumi
+  pull-requests: write  # sticky PR comment with preview URL
+
+jobs:
+  publish:
+    # Skip fork PRs — we do not run fork code in our deploy pipeline, period.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    uses: ./.github/workflows/enterprise-publish.yml
+    with:
+      tag_override: pr-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
+      ref: ${{ github.event.pull_request.head.sha }}
+
+  deploy:
+    needs: publish
+    uses: ./.github/workflows/enterprise-deploy.yml
+    with:
+      action: deploy
+      platform: fargate
+      region: us-east-1
+      stack_name: preview-pr-${{ github.event.pull_request.number }}
+      version: ${{ needs.publish.outputs.version }}
+      subdomain: thunderbolt-pr-${{ github.event.pull_request.number }}.preview.thunderbolt.io
+      cloudflare_zone_id: ${{ vars.CLOUDFLARE_ZONE_ID }}
+    secrets: inherit
+
+  comment:
+    needs: deploy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Sticky PR comment with preview URL
+        uses: marocchino/sticky-pull-request-comment@0ea0beb66eb9baf113663a64ec522f60e49231c0 # v3.0.4
+        with:
+          header: preview-env
+          message: |
+            **Preview environment deployed** 🚀
+
+            | | |
+            |---|---|
+            | URL | ${{ needs.deploy.outputs.url }} |
+            | Stack | `preview-pr-${{ github.event.pull_request.number }}` |
+            | Commit | `${{ github.event.pull_request.head.sha }}` |
+
+            The preview stack auto-destroys on PR close/merge. Login is via the bundled Keycloak realm — seeded with the `demo@thunderbolt.io` user (password `demo`) by default.

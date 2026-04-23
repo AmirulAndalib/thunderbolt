@@ -2,7 +2,25 @@ name: Enterprise Publish
 
 on:
   workflow_call:
+    inputs:
+      tag_override:
+        description: 'Image tag to use instead of package.json version (e.g. pr-123-abc1234 for preview builds). When set, also skips the :latest tag and Helm chart push.'
+        type: string
+        required: false
+      ref:
+        description: 'Git ref to build from (default: the triggering ref)'
+        type: string
+        required: false
+    outputs:
+      version:
+        description: 'The tag the images were published with'
+        value: ${{ jobs.publish.outputs.version }}
   workflow_dispatch:
+    inputs:
+      tag_override:
+        description: 'Image tag to use instead of package.json version'
+        type: string
+        required: false
   push:
     branches: [main]
     paths:
@@ -22,17 +40,30 @@ jobs:
     permissions:
       contents: read
       packages: write
+    outputs:
+      version: ${{ steps.version.outputs.version }}
 
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ inputs.ref || github.ref }}
 
-      - name: Read version from package.json
+      - name: Resolve version
         id: version
+        env:
+          TAG_OVERRIDE: ${{ inputs.tag_override }}
         run: |
-          VERSION=$(jq -r .version package.json)
-          [ -n "$VERSION" ] && [ "$VERSION" != "null" ] || { echo "Invalid version: $VERSION"; exit 1; }
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "Version: $VERSION"
+          if [ -n "$TAG_OVERRIDE" ]; then
+            echo "version=$TAG_OVERRIDE" >> $GITHUB_OUTPUT
+            echo "publish_latest=false" >> $GITHUB_OUTPUT
+            echo "Version (override): $TAG_OVERRIDE — skipping :latest tag and Helm chart push"
+          else
+            VERSION=$(jq -r .version package.json)
+            [ -n "$VERSION" ] && [ "$VERSION" != "null" ] || { echo "Invalid version: $VERSION"; exit 1; }
+            echo "version=$VERSION" >> $GITHUB_OUTPUT
+            echo "publish_latest=true" >> $GITHUB_OUTPUT
+            echo "Version: $VERSION"
+          fi
 
       - name: Log in to GHCR
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
@@ -55,7 +86,7 @@ jobs:
             VITE_AUTH_MODE=oidc
           tags: |
             ${{ env.IMAGE_PREFIX }}/thunderbolt-frontend:${{ steps.version.outputs.version }}
-            ${{ env.IMAGE_PREFIX }}/thunderbolt-frontend:latest
+            ${{ steps.version.outputs.publish_latest == 'true' && format('{0}/thunderbolt-frontend:latest', env.IMAGE_PREFIX) || '' }}
           labels: |
             org.opencontainers.image.source=${{ env.IMAGE_SOURCE }}
 
@@ -68,7 +99,7 @@ jobs:
           no-cache: true
           tags: |
             ${{ env.IMAGE_PREFIX }}/thunderbolt-backend:${{ steps.version.outputs.version }}
-            ${{ env.IMAGE_PREFIX }}/thunderbolt-backend:latest
+            ${{ steps.version.outputs.publish_latest == 'true' && format('{0}/thunderbolt-backend:latest', env.IMAGE_PREFIX) || '' }}
           labels: |
             org.opencontainers.image.source=${{ env.IMAGE_SOURCE }}
 
@@ -81,7 +112,7 @@ jobs:
           no-cache: true
           tags: |
             ${{ env.IMAGE_PREFIX }}/thunderbolt-postgres:${{ steps.version.outputs.version }}
-            ${{ env.IMAGE_PREFIX }}/thunderbolt-postgres:latest
+            ${{ steps.version.outputs.publish_latest == 'true' && format('{0}/thunderbolt-postgres:latest', env.IMAGE_PREFIX) || '' }}
           labels: |
             org.opencontainers.image.source=${{ env.IMAGE_SOURCE }}
 
@@ -94,7 +125,7 @@ jobs:
           no-cache: true
           tags: |
             ${{ env.IMAGE_PREFIX }}/thunderbolt-keycloak:${{ steps.version.outputs.version }}
-            ${{ env.IMAGE_PREFIX }}/thunderbolt-keycloak:latest
+            ${{ steps.version.outputs.publish_latest == 'true' && format('{0}/thunderbolt-keycloak:latest', env.IMAGE_PREFIX) || '' }}
           labels: |
             org.opencontainers.image.source=${{ env.IMAGE_SOURCE }}
 
@@ -107,19 +138,21 @@ jobs:
           no-cache: true
           tags: |
             ${{ env.IMAGE_PREFIX }}/thunderbolt-powersync:${{ steps.version.outputs.version }}
-            ${{ env.IMAGE_PREFIX }}/thunderbolt-powersync:latest
+            ${{ steps.version.outputs.publish_latest == 'true' && format('{0}/thunderbolt-powersync:latest', env.IMAGE_PREFIX) || '' }}
           labels: |
             org.opencontainers.image.source=${{ env.IMAGE_SOURCE }}
 
-      # -- Package and push Helm chart --
+      # -- Package and push Helm chart (skipped for preview builds) --
 
       - name: Update chart version
+        if: steps.version.outputs.publish_latest == 'true'
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           sed -i "s/^version:.*/version: $VERSION/" deploy/k8s/Chart.yaml
           sed -i "s/^appVersion:.*/appVersion: \"$VERSION\"/" deploy/k8s/Chart.yaml
 
       - name: Package and push Helm chart
+        if: steps.version.outputs.publish_latest == 'true'
         run: |
           helm package deploy/k8s/ --destination .
           helm push thunderbolt-${{ steps.version.outputs.version }}.tgz oci://${{ env.REGISTRY }}/${{ github.repository_owner }}/charts
