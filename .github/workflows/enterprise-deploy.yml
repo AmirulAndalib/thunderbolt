@@ -105,7 +105,6 @@ jobs:
       - name: Configure Pulumi stack
         working-directory: deploy/pulumi
         env:
-          PULUMI_CONFIG_PASSPHRASE: ${{ secrets.PULUMI_CONFIG_PASSPHRASE }}
           INPUT_PLATFORM: ${{ inputs.platform }}
           INPUT_STACK_NAME: ${{ inputs.stack_name }}
           INPUT_VERSION: ${{ steps.version.outputs.version }}
@@ -134,15 +133,12 @@ jobs:
           stack-name: ${{ inputs.stack_name }}
           work-dir: deploy/pulumi
           upsert: true
-        env:
-          PULUMI_CONFIG_PASSPHRASE: ${{ secrets.PULUMI_CONFIG_PASSPHRASE }}
 
       - name: Capture stack outputs
         id: outputs
         working-directory: deploy/pulumi
         env:
           INPUT_STACK_NAME: ${{ inputs.stack_name }}
-          PULUMI_CONFIG_PASSPHRASE: ${{ secrets.PULUMI_CONFIG_PASSPHRASE }}
         run: |
           pulumi stack output --json -s "$INPUT_STACK_NAME"
           URL=$(pulumi stack output url -s "$INPUT_STACK_NAME" 2>/dev/null || echo "")
@@ -176,5 +172,3 @@ jobs:
           stack-name: ${{ inputs.stack_name }}
           work-dir: deploy/pulumi
           remove: true
-        env:
-          PULUMI_CONFIG_PASSPHRASE: ${{ secrets.PULUMI_CONFIG_PASSPHRASE }}
