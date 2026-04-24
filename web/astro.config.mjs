@@ -3,48 +3,6 @@ import { defineConfig } from 'astro/config';
 import react from '@astrojs/react';
 import starlight from '@astrojs/starlight';
 import tailwindcss from '@tailwindcss/vite';
-import { fileURLToPath } from 'node:url';
-import { resolve } from 'node:path';
-
-const docsPath = resolve(fileURLToPath(new URL('.', import.meta.url)), '../docs');
-
-/** @type {import('astro').AstroIntegration} */
-const docsHmr = {
-	name: 'docs-hmr',
-	hooks: {
-		'astro:server:setup': ({ server, refreshContent }) => {
-			if (!refreshContent) return;
-			server.watcher.setMaxListeners(server.watcher.getMaxListeners() + 3);
-			server.watcher.add(docsPath);
-			const refresh = async (/** @type {string} */ file) => {
-				if (!file.startsWith(docsPath) || !/\.md$/i.test(file)) return;
-				console.log('[docs-hmr] file changed:', file);
-				await refreshContent({ loaders: ['thunderbolt-repo-docs'] });
-				console.log('[docs-hmr] refreshContent done');
-
-				for (const [envName, env] of Object.entries(server.environments ?? {})) {
-					const runner = /** @type {any} */ (env)?.runner;
-					const evalMods = runner?.evaluatedModules;
-					if (!evalMods) continue;
-					let dsId = null;
-					for (const [id] of evalMods.idToModuleMap) {
-						if (id?.includes('data-store')) { dsId = id; break; }
-					}
-					if (dsId) {
-						console.log(`[docs-hmr] data-store found in runner for env: ${envName}`);
-						runner.clearCache();
-						console.log(`[docs-hmr] cleared runner cache for env: ${envName}`);
-					} else {
-						console.log(`[docs-hmr] data-store NOT in runner for env: ${envName} (size: ${evalMods.idToModuleMap.size})`);
-					}
-				}
-			};
-			server.watcher.on('change', refresh);
-			server.watcher.on('add', refresh);
-			server.watcher.on('unlink', refresh);
-		},
-	},
-};
 
 // https://astro.build/config
 export default defineConfig({
@@ -53,7 +11,6 @@ export default defineConfig({
 		'/announcing-thunderbolt': '/blog/mozilla-introduces-thunderbolt',
 	},
 	integrations: [
-		docsHmr,
 		react(),
 		starlight({
 			title: 'Thunderbolt Docs',
