@@ -43,6 +43,7 @@ export default defineConfig({
 					items: [
 						{ label: 'Introduction', slug: 'docs' },
 						{ label: 'Features and Roadmap', slug: 'docs/roadmap' },
+						{ label: 'Customize', slug: 'docs/customize' },
 						{ label: 'FAQ', slug: 'docs/faq' },
 					],
 				},

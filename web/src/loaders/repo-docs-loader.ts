@@ -22,8 +22,9 @@ type Options = {
 	githubBaseUrl?: string;
 };
 
-const FRONTMATTER_RE = /^---\n([\s\S]*?)\n---\n?/;
-const H1_RE = /^#\s+(.+)$/m;
+const frontmatterRe = /^---\n([\s\S]*?)\n---\n?/;
+const h1Re = /^#\s+(.+)$/m;
+const stripH1Re = /^#\s+.+\r?\n+/;
 
 export const repoDocsLoader = ({
 	base,
@@ -46,9 +47,10 @@ export const repoDocsLoader = ({
 				const relPath = relative(rootPath, abs).split(sep).join('/');
 				const filePath = relative(astroRootPath, abs).split(sep).join('/');
 				const title = fm.title || extractH1(content) || fallbackTitle(relPath);
-				const description = fm.description || extractDescription(content) || '';
+				const strippedContent = stripH1(content);
+				const description = fm.description || extractDescription(strippedContent) || '';
 				const slug = computeSlug(relPath, urlPrefix);
-				const body = rewriteLinks(stripH1(content), relPath, urlPrefix, githubBaseUrl);
+				const body = rewriteLinks(strippedContent, relPath, urlPrefix, githubBaseUrl);
 				const data = await parseData({
 					id: slug,
 					data: { ...fm, title, description },
@@ -87,7 +89,7 @@ async function walkMarkdown(dir: string): Promise<string[]> {
 }
 
 function parseFrontmatter(raw: string) {
-	const match = raw.match(FRONTMATTER_RE);
+	const match = raw.match(frontmatterRe);
 	if (!match) return { data: {} as Record<string, string>, content: raw };
 	const data: Record<string, string> = {};
 	for (const line of match[1].split('\n')) {
@@ -98,16 +100,16 @@ function parseFrontmatter(raw: string) {
 }
 
 function extractH1(body: string): string | undefined {
-	return body.match(H1_RE)?.[1]?.trim();
+	return body.match(h1Re)?.[1]?.trim();
 }
 
 function stripH1(body: string): string {
-	return body.replace(/^#\s+.+\r?\n+/, '');
+	return body.replace(stripH1Re, '');
 }
 
 /** Pick the first real prose paragraph (skipping code blocks, tables, admonitions, lists). */
 function extractDescription(body: string): string | undefined {
-	const blocks = stripH1(body)
+	const blocks = body
 		.replace(/^```[\s\S]*?```$/gm, '')
 		.split(/\n\s*\n/);
 	for (const block of blocks) {
@@ -151,7 +153,7 @@ function rewriteLinks(
 	return body.replace(
 		/\[([^\]]+)\]\(([^)\s#]+)(#[^)\s]*)?\)/g,
 		(match, text: string, url: string, hash = '') => {
-			if (/^([a-z]+:|\/\/|#|mailto:|tel:)/i.test(url)) return match;
+			if (/^([a-z]+:|\/\/|#|mailto:|tel:)/i.test(url) || url.startsWith('/')) return match;
 			const repoPath = resolveRepoPath(`docs/${sourceRelPath}`, url);
 			if (repoPath.startsWith('docs/')) {
 				const inner = repoPath
