@@ -34,14 +34,13 @@ export const repoDocsLoader = ({
 	name: 'thunderbolt-repo-docs',
 	load: async (context: LoaderContext) => {
 		const { store, parseData, generateDigest, renderMarkdown, config } = context;
-		const normalizedBase = base.endsWith('/') ? base : `${base}/`;
-		const rootPath = fileURLToPath(new URL(normalizedBase, config.root));
+		const rootPath = fileURLToPath(new URL(base.endsWith('/') ? base : `${base}/`, config.root));
 		const astroRootPath = fileURLToPath(config.root);
 
-		const rebuild = async () => {
-			store.clear();
-			const files = await walkMarkdown(rootPath);
-			for (const abs of files) {
+		store.clear();
+		const files = await walkMarkdown(rootPath);
+		await Promise.all(
+			files.map(async (abs) => {
 				const raw = await readFile(abs, 'utf8');
 				const { data: fm, content } = parseFrontmatter(raw);
 				const relPath = relative(rootPath, abs).split(sep).join('/');
@@ -66,26 +65,24 @@ export const repoDocsLoader = ({
 					digest: generateDigest(raw),
 					rendered,
 				});
-			}
-		};
-
-		await rebuild();
+			}),
+		);
 	},
 });
 
 async function walkMarkdown(dir: string): Promise<string[]> {
-	const out: string[] = [];
 	const entries = await readdir(dir, { withFileTypes: true });
-	for (const entry of entries) {
-		if (entry.name.startsWith('.') || entry.name.startsWith('_')) continue;
-		const full = join(dir, entry.name);
-		if (entry.isDirectory()) {
-			out.push(...(await walkMarkdown(full)));
-		} else if (entry.isFile() && /\.md$/i.test(entry.name)) {
-			out.push(full);
-		}
-	}
-	return out.sort();
+	const results = await Promise.all(
+		entries
+			.filter((e) => !e.name.startsWith('.') && !e.name.startsWith('_'))
+			.map((entry) => {
+				const full = join(dir, entry.name);
+				if (entry.isDirectory()) return walkMarkdown(full);
+				if (entry.isFile() && /\.md$/i.test(entry.name)) return Promise.resolve([full]);
+				return Promise.resolve([]);
+			}),
+	);
+	return results.flat().sort();
 }
 
 function parseFrontmatter(raw: string) {
@@ -136,7 +133,8 @@ function fallbackTitle(relPath: string): string {
 function computeSlug(relPath: string, prefix: string): string {
 	const withoutExt = relPath.replace(/\.md$/i, '').toLowerCase();
 	const parts = withoutExt.split('/');
-	if (parts[parts.length - 1] === 'readme' || parts[parts.length - 1] === 'index') {
+	const last = parts.at(-1);
+	if (last === 'readme' || last === 'index') {
 		parts.pop();
 		return parts.length === 0 ? prefix : `${prefix}/${parts.join('/')}`;
 	}
