@@ -37,7 +37,6 @@ We welcome contributions from everyone.
 - [Deployment](./deploy/README.md) - Self-host with Docker Compose or Kubernetes
 - [Development](./docs/development.md) - Quick start, setup, and testing
 - [Architecture](./docs/architecture.md) - System architecture and diagrams
-- [Features and Roadmap](./docs/roadmap.md) - Platform and feature status
 - [Claude Code Skills](./docs/claude-code.md) - Slash commands, automation, and subtree syncing
 - [Storybook](./docs/storybook.md) - Build, test, and document components
 - [Vite Bundle Analyzer](./docs/vite-bundle-analyzer.md) - Analyze frontend bundle size

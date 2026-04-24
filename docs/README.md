@@ -5,5 +5,3 @@ Thunderbolt is an open-source, cross-platform AI client for web, mobile, and des
 ⚠️ Thunderbolt is in active development. We encourage you to self-host and evaluate it, but it is not yet intended for production use.
 
 ![Thunderbolt Main Dashboard](/screenshots/main.png)
-
-See [Features and Roadmap](/docs/roadmap) for platform support and feature status.

@@ -2,7 +2,7 @@
 
 Thunderbolt's multi-device sync is built on [PowerSync](https://powersync.com). Every device holds a local SQLite database; the sync service streams deltas between SQLite and the backend's PostgreSQL. Writes happen locally first, so the app stays snappy offline.
 
-> **Note.** Cross-device sync and optional end-to-end encryption are both in **Preview**. See [roadmap.md](../roadmap.md) for current status.
+> **Note.** Cross-device sync and optional end-to-end encryption are both in **Preview**.
 
 ## How It Works
 
