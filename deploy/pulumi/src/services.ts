@@ -350,7 +350,10 @@ export const createServices = (args: ServiceArgs) => {
           { name: 'DATABASE_DRIVER', value: 'postgres' },
           { name: 'OIDC_ISSUER', value: pulumi.interpolate`${args.publicUrls.auth}/realms/thunderbolt` },
           { name: 'OIDC_CLIENT_ID', value: 'thunderbolt-app' },
-          { name: 'BETTER_AUTH_URL', value: args.publicUrls.app },
+          // BETTER_AUTH_URL = where backend is served. Keycloak redirects OAuth
+          // callbacks here; setting it to the app URL would route through the
+          // frontend's nginx proxy (which requires different DNS config).
+          { name: 'BETTER_AUTH_URL', value: args.publicUrls.api },
           { name: 'APP_URL', value: args.publicUrls.app },
           { name: 'TRUSTED_ORIGINS', value: pulumi.interpolate`${args.publicUrls.app},${args.publicUrls.marketing}` },
           { name: 'CORS_ORIGINS', value: pulumi.interpolate`${args.publicUrls.app},${args.publicUrls.marketing}` },
