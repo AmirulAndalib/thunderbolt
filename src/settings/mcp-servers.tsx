@@ -30,7 +30,7 @@ import {
   updateMcpServerWithCredentials,
 } from '@/dal'
 import type { McpServerCredentials } from '@/dal/mcp-secrets'
-import { useDatabase } from '@/contexts'
+import { useDatabase, useHttpClient } from '@/contexts'
 import { mcpSecretsTable, mcpServersTable } from '@/db/tables'
 import { useMCP, type MCPClient } from '@/lib/mcp-provider'
 import { type McpServer } from '@/types'
@@ -60,6 +60,8 @@ import { validateMcpServerUrl } from '@/lib/mcp-url-validation'
 import { useMcpServerOAuth, type McpOAuthCallback, type OAuthCardState } from '@/hooks/use-mcp-server-oauth'
 import { generateServerName, useAddServerForm } from '@/hooks/use-add-server-form'
 import { IrohPairingPanel, useAppNodeId } from '@/components/settings/iroh-pairing-panel'
+import { irohClientNodeId } from '@/acp/iroh/iroh-transport'
+import { selfEnrollIrohNodeId } from '@/lib/iroh-enrollment'
 
 export { generateServerName }
 
@@ -111,6 +113,9 @@ export type McpServersPageDeps = {
    *  Production omits and lazy-loads the wasm client only when an iroh target is
    *  entered, keeping the wasm chunk off the entry bundle. */
   loadAppNodeId?: () => Promise<string>
+  /** Test/DI override for app NodeId self-enrollment, fired when an iroh bridge is added.
+   *  Production omits and binds the authenticated client. */
+  enrollIroh?: () => Promise<void>
 }
 
 type StatusTone = 'success' | 'warning' | 'destructive'
@@ -193,6 +198,8 @@ export default function McpServersPage({ deps = {} }: { deps?: McpServersPageDep
   const probeTools = deps.probeMcpServerTools ?? probeMcpServerTools
   const classifyAuth = deps.classifyMcpServerAuth ?? classifyMcpServerAuth
   const db = useDatabase()
+  const httpClient = useHttpClient()
+  const runEnroll = deps.enrollIroh ?? (() => selfEnrollIrohNodeId(httpClient, deps.loadAppNodeId ?? irohClientNodeId))
   const cloudUrl = useLocalSettingsStore((s) => s.cloudUrl)
   // Read provider connection state read-only for status display. Sync ownership
   // lives in the single global useMcpSync() in AppContent — running it here too
@@ -439,6 +446,14 @@ export default function McpServersPage({ deps = {} }: { deps?: McpServersPageDep
     }
     const url = isIroh ? newServerUrl.trim() : newServerUrl
     await addServerMutation.mutateAsync({ id: uuidv7(), name: resolveServerName(), url })
+    if (isIroh) {
+      // App enrolls its own dialer NodeId; bridge registers itself server-side.
+      // Fire and forget: enrollment must never block the add, and manual pairing remains the
+      // fallback for Standalone, unauthenticated, or offline use.
+      void runEnroll().catch((error) => {
+        console.warn('iroh transparent enrollment failed; using manual pairing fallback', error)
+      })
+    }
     form.resetAddDialog()
     resetLocalDialogState()
   }

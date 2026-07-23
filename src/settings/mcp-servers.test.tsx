@@ -6,6 +6,8 @@ import { createMcpServer, createMcpServerWithCredentials, getAllMcpServers, getM
 import { resetTestDatabase, setupTestDatabase, teardownTestDatabase } from '@/dal/test-utils'
 import { getDb } from '@/db/database'
 import { renderWithReactivity, waitForElement } from '@/test-utils/powersync-reactivity-test'
+import { createMockHttpClient } from '@/test-utils/http-client'
+import { HttpClientProvider } from '@/contexts'
 import { getClock } from '@/testing-library'
 import { MCPProvider, useMCP, type MCPClient } from '@/lib/mcp-provider'
 import type { MCPTransportType } from '@/lib/mcp-transport'
@@ -32,8 +34,18 @@ const neverResolves = (() => new Promise<MCPClient>(() => {})) as (
   type: MCPTransportType,
 ) => Promise<MCPClient>
 
+// A real HttpClientProvider (DI, no module mock) so the page's useHttpClient() resolves.
+// The default mock client 200s every request — the enrollment-specific tests inject their
+// own `enrollIroh` seam instead of asserting on this client.
+const mockHttpClient = createMockHttpClient()
+
 const McpProviderWrapper = ({ children }: { children: ReactNode }) =>
-  createElement(MemoryRouter, { children: createElement(MCPProvider, { createClient: neverResolves, children }) })
+  createElement(HttpClientProvider, {
+    httpClient: mockHttpClient,
+    children: createElement(MemoryRouter, {
+      children: createElement(MCPProvider, { createClient: neverResolves, children }),
+    }),
+  })
 
 describe('McpServersPage reactivity', () => {
   beforeAll(async () => {
@@ -305,11 +317,11 @@ describe('McpServersPage iroh add flow', () => {
     cleanup()
   })
 
-  const openIrohDialog = async () => {
-    const result = renderWithReactivity(<McpServersPage deps={{ loadAppNodeId: async () => appNodeId }} />, {
-      tables: ['mcp_servers', 'mcp_secrets'],
-      wrapper: McpProviderWrapper,
-    })
+  const openIrohDialog = async (extraDeps: Partial<McpServersPageDeps> = {}) => {
+    const result = renderWithReactivity(
+      <McpServersPage deps={{ loadAppNodeId: async () => appNodeId, ...extraDeps }} />,
+      { tables: ['mcp_servers', 'mcp_secrets'], wrapper: McpProviderWrapper },
+    )
     const openButton = await waitForElement(() => screen.queryByRole('button', { name: 'Add MCP server' }))
     fireEvent.click(openButton)
     const urlInput = await waitForElement(() => screen.queryByPlaceholderText('http://localhost:8000/mcp/'))
@@ -343,6 +355,52 @@ describe('McpServersPage iroh add flow', () => {
     expect(created[0]?.type).toBe('iroh')
     expect(created[0]?.url).toBe(irohTarget)
     expect(created[0]?.name).toBe('Laptop Bridge')
+  })
+
+  it('self-enrolls this app when adding an iroh bridge', async () => {
+    const enrollIroh = mock(async () => {})
+    await openIrohDialog({ enrollIroh })
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Add server' }))
+      await getClock().runAllAsync()
+    })
+
+    expect(enrollIroh).toHaveBeenCalledTimes(1)
+    expect(enrollIroh).toHaveBeenCalledWith()
+  })
+
+  it('still creates the server and keeps the manual pairing panel when enrollment fails', async () => {
+    const db = getDb()
+    const enrollIroh = mock(async () => {
+      throw new Error('no account (standalone)')
+    })
+    await openIrohDialog({ enrollIroh })
+    expect(screen.getByTestId('iroh-pairing-panel')).toBeInTheDocument()
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Add server' }))
+      await getClock().runAllAsync()
+    })
+
+    const created = await getAllMcpServers(db)
+    expect(created).toHaveLength(1)
+    expect(created[0]?.type).toBe('iroh')
+  })
+
+  it('does not block the add on a slow (never-resolving) enrollment', async () => {
+    const db = getDb()
+    const enrollIroh = mock(() => new Promise<void>(() => {}))
+    await openIrohDialog({ enrollIroh })
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Add server' }))
+      await getClock().runAllAsync()
+    })
+
+    const created = await getAllMcpServers(db)
+    expect(created).toHaveLength(1)
+    expect(screen.queryByText('Add MCP Server')).not.toBeInTheDocument()
   })
 })
 
@@ -417,7 +475,8 @@ describe('McpServersPage Edit server', () => {
     const irohTarget = 'a'.repeat(52)
     await createMcpServer(db, { id, name: 'Old Bridge', type: 'iroh', url: irohTarget, enabled: 1 })
 
-    renderWithReactivity(<McpServersPage deps={{ loadAppNodeId: async () => 'b'.repeat(52) }} />, {
+    const enrollIroh = mock(async () => {})
+    renderWithReactivity(<McpServersPage deps={{ loadAppNodeId: async () => 'b'.repeat(52), enrollIroh }} />, {
       tables: ['mcp_servers', 'mcp_secrets'],
       wrapper: McpProviderWrapper,
     })
@@ -446,6 +505,7 @@ describe('McpServersPage Edit server', () => {
     expect(rows[0]?.name).toBe('New Bridge')
     expect(rows[0]?.type).toBe('iroh')
     expect(rows[0]?.url).toBe(irohTarget)
+    expect(enrollIroh).not.toHaveBeenCalled()
   })
 })
 
@@ -554,12 +614,14 @@ const getMcp = () => {
 
 const makeMcpWrapper = (createClient: CreateClientFn) => {
   const Wrapper = ({ children }: { children: ReactNode }) => (
-    <MemoryRouter>
-      <MCPProvider createClient={createClient}>
-        <CaptureMcpContext />
-        {children}
-      </MCPProvider>
-    </MemoryRouter>
+    <HttpClientProvider httpClient={mockHttpClient}>
+      <MemoryRouter>
+        <MCPProvider createClient={createClient}>
+          <CaptureMcpContext />
+          {children}
+        </MCPProvider>
+      </MemoryRouter>
+    </HttpClientProvider>
   )
   return Wrapper
 }
