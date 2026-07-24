@@ -57,8 +57,7 @@ import {
   type Tool,
   type ToolSet,
 } from 'ai'
-import { type MCPClient } from '@ai-sdk/mcp'
-import type { NamedMCPClient } from '@/lib/mcp-provider'
+import type { MCPClient, NamedMCPClient } from '@/lib/mcp-provider'
 import { isClosedConnectionError } from '@/lib/mcp-errors'
 import { smoothStreamWordDelayMs } from '@/chats/chat-throttle'
 import { detectStreamChunk } from './smooth-chunking'
@@ -140,14 +139,14 @@ export const getSystemTinfoilClient = async (): Promise<SecureClient> => {
  * swallowed ONLY here because this is a speculative cache fill — the real send
  * still surfaces attestation failures loudly through {@link createModel}.
  */
-export const prewarmSystemModel = async (model: Pick<Model, 'provider' | 'isSystem'> | null | undefined) => {
+export const runSystemModelPrewarm = async (model: Pick<Model, 'provider' | 'isSystem'> | null | undefined) => {
   if (!model || model.provider !== 'tinfoil' || !model.isSystem) {
     return
   }
   try {
     await getSystemTinfoilClient()
   } catch (error) {
-    console.warn('prewarmSystemModel: warm-up skipped', error)
+    console.warn('runSystemModelPrewarm: warm-up skipped', error)
   }
 }
 
