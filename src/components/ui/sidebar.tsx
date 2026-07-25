@@ -28,8 +28,23 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
+  useSyncExternalStore,
 } from 'react'
+
+// Below this width the desktop layout has no room for the expanded sidebar:
+// the sidebar is pinned to the collapsed icon rail and the toggle buttons
+// hide. Only reachable in the Tauri desktop app (force-desktop layout with a
+// 600px min window width) — on web, widths below 768px use the mobile drawer.
+const forceCollapseBreakpoint = 700
+const forceCollapseMql = () => window.matchMedia(`(max-width: ${forceCollapseBreakpoint - 1}px)`)
+const subscribeForceCollapse = (callback: () => void) => {
+  const mediaQuery = forceCollapseMql()
+  mediaQuery.addEventListener('change', callback)
+  return () => mediaQuery.removeEventListener('change', callback)
+}
+const getForceCollapseSnapshot = () => forceCollapseMql().matches
 
 const sidebarCookieName = 'sidebar_state'
 const sidebarCookieMaxAge = 60 * 60 * 24 * 7
@@ -47,7 +62,16 @@ type SidebarContextProps = {
   setOpen: (open: boolean) => void
   openMobile: boolean
   setOpenMobile: (open: boolean) => void
+  /** Closes the mobile drawer and resolves once its close animation has fully
+   *  settled (immediately when it isn't open). Await this before kicking off
+   *  main-thread-heavy work like navigating to a large chat. */
+  closeMobileSidebar: () => Promise<void>
+  /** Internal: invoked by the mobile drawer when its close animation finishes. */
+  notifyMobileSidebarClosed: () => void
   isMobile: boolean
+  /** True when the window is too narrow for the expanded sidebar (< 700px in
+   *  the desktop layout): the sidebar is pinned collapsed and toggles hide. */
+  forceCollapsed: boolean
   toggleSidebar: () => void
   //* new properties for sidebar resizing
   width: string
@@ -98,10 +122,15 @@ const SidebarProvider = forwardRef<
     //* new state for tracking is dragging rail
     const [isDraggingRail, setIsDraggingRail] = useState(false)
 
+    const isNarrow = useSyncExternalStore(subscribeForceCollapse, getForceCollapseSnapshot)
+    const forceCollapsed = isNarrow && !isMobile
+
     // This is the internal state of the sidebar.
     // We use openProp and setOpenProp for control from outside the component.
+    // The stored preference survives a forced collapse, so widening the
+    // window past the threshold restores the previous state.
     const [_open, _setOpen] = useState(defaultOpen)
-    const open = openProp ?? _open
+    const open = !forceCollapsed && (openProp ?? _open)
     const setOpen = useCallback(
       (value: boolean | ((value: boolean) => boolean)) => {
         const openState = typeof value === 'function' ? value(open) : value
@@ -119,15 +148,37 @@ const SidebarProvider = forwardRef<
 
     const { triggerImpact } = useHaptics()
 
-    // Helper to toggle the sidebar.
+    // Resolvers awaiting the mobile drawer's close animation. Flushed by
+    // notifyMobileSidebarClosed, which MobileSidebar calls when the spring settles.
+    const mobileCloseResolversRef = useRef<Array<() => void>>([])
+
+    const notifyMobileSidebarClosed = useCallback(() => {
+      const resolvers = mobileCloseResolversRef.current
+      mobileCloseResolversRef.current = []
+      resolvers.forEach((resolve) => resolve())
+    }, [])
+
+    const closeMobileSidebar = useCallback((): Promise<void> => {
+      if (!isMobile || !openMobile) {
+        return Promise.resolve()
+      }
+
+      return new Promise((resolve) => {
+        mobileCloseResolversRef.current.push(resolve)
+        setOpenMobile(false)
+      })
+    }, [isMobile, openMobile])
+
+    // Helper to toggle the sidebar. No-op while the collapse is forced so the
+    // keyboard shortcut can't expand a sidebar the window can't fit.
     const toggleSidebar = useCallback(() => {
       if (isMobile) {
         triggerImpact('light')
         setOpenMobile((open) => !open)
-      } else {
+      } else if (!forceCollapsed) {
         setOpen((open) => !open)
       }
-    }, [isMobile, setOpen, triggerImpact])
+    }, [isMobile, forceCollapsed, setOpen, triggerImpact])
 
     // Adds a keyboard shortcut to toggle the sidebar.
     useEffect(() => {
@@ -154,6 +205,9 @@ const SidebarProvider = forwardRef<
         isMobile,
         openMobile,
         setOpenMobile,
+        closeMobileSidebar,
+        notifyMobileSidebarClosed,
+        forceCollapsed,
         toggleSidebar,
         //* new context for sidebar resizing
         width,
@@ -170,6 +224,9 @@ const SidebarProvider = forwardRef<
         openMobile,
         //* remove setOpenMobile from dependencies because setOpenMobile are state setters created by useState
         // setOpenMobile,
+        closeMobileSidebar,
+        notifyMobileSidebarClosed,
+        forceCollapsed,
         toggleSidebar,
         //* add width to dependencies
         width,
@@ -219,6 +276,7 @@ const Sidebar = forwardRef<
     state,
     openMobile,
     setOpenMobile,
+    notifyMobileSidebarClosed,
     //* new property for tracking is dragging rail
     isDraggingRail,
   } = useSidebar()
@@ -226,7 +284,10 @@ const Sidebar = forwardRef<
   if (collapsible === 'none') {
     return (
       <div
-        className={cn('flex h-full w-(--sidebar-width) flex-col bg-sidebar text-sidebar-foreground', className)}
+        className={cn(
+          'flex h-full w-(--sidebar-width) flex-col bg-sidebar/80 text-sidebar-foreground backdrop-blur-lg',
+          className,
+        )}
         ref={ref}
         {...props}
       >
@@ -237,7 +298,14 @@ const Sidebar = forwardRef<
 
   if (isMobile) {
     return (
-      <MobileSidebar open={openMobile} onOpenChange={setOpenMobile} side={side} className={className} {...props}>
+      <MobileSidebar
+        open={openMobile}
+        onOpenChange={setOpenMobile}
+        onCloseComplete={notifyMobileSidebarClosed}
+        side={side}
+        className={className}
+        {...props}
+      >
         {children}
       </MobileSidebar>
     )
@@ -285,7 +353,7 @@ const Sidebar = forwardRef<
       >
         <div
           data-sidebar="sidebar"
-          className="flex h-full w-full flex-col bg-sidebar group-data-[variant=floating]:rounded-lg group-data-[variant=floating]:border group-data-[variant=floating]:border-sidebar-border group-data-[variant=floating]:shadow-sm"
+          className="flex h-full w-full flex-col bg-sidebar/80 backdrop-blur-lg group-data-[variant=floating]:rounded-lg group-data-[variant=floating]:border group-data-[variant=floating]:border-sidebar-border group-data-[variant=floating]:shadow-sm"
         >
           {children}
         </div>

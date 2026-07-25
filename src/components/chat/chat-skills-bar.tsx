@@ -9,7 +9,7 @@ import { useNavigate } from 'react-router'
 
 import { Button } from '@/components/ui/button'
 import { MobileBlurBackdrop } from '@/components/ui/mobile-blur-backdrop'
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { ResponsivePopover } from '@/components/ui/responsive-popover'
 import { SearchInput } from '@/components/ui/search-input'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { maxPinnedSkills } from '@/dal'
@@ -180,18 +180,108 @@ export const ChatSkillsBar = ({
     return null
   }
 
+  const setAddOpen = (open: boolean) => dispatch({ type: 'ADD_POPOVER_TOGGLED', open })
+
   const addButton = (
-    <PopoverTrigger asChild>
-      <Button
-        variant="outline"
-        size="icon-sm"
-        aria-label="Add a skill"
-        disabled={addDisabled}
-        className={cn(chipSurfaceClass, 'disabled:cursor-not-allowed disabled:opacity-40')}
-      >
-        <Plus />
-      </Button>
-    </PopoverTrigger>
+    <Button
+      variant="outline"
+      size="icon-sm"
+      aria-label="Add a skill"
+      disabled={addDisabled}
+      className={cn(chipSurfaceClass, 'disabled:cursor-not-allowed disabled:opacity-40')}
+    >
+      <Plus />
+    </Button>
+  )
+
+  const addMenuContent = (
+    <>
+      {/* Search only appears once the list is long enough for scanning to
+          hurt (6+ rows) — a filter box above a short list is noise. */}
+      {pinnable.length > 5 && (
+        <div className="p-1 pb-2">
+          <SearchInput
+            value={addQuery}
+            onChange={(event) => dispatch({ type: 'ADD_QUERY_CHANGED', value: event.target.value })}
+            inputSize="sm"
+            placeholder="Search skills"
+            aria-label="Search skills"
+            autoFocus={!isMobile}
+          />
+        </div>
+      )}
+      <ul className="max-h-64 overflow-y-auto">
+        {pinnable.length === 0 && (
+          <li className="px-2 py-1.5 text-[length:var(--font-size-sm)] text-muted-foreground">All skills are pinned</li>
+        )}
+        {pinnable.length > 0 && pinnableFiltered.length === 0 && (
+          <li className="px-2 py-1.5 text-[length:var(--font-size-sm)] text-muted-foreground">No matching skills</li>
+        )}
+        {pinnableFiltered.map((skill) => (
+          <li key={skill.id}>
+            <button
+              type="button"
+              onClick={() => {
+                setAddOpen(false)
+                void handleTogglePin(skill, 'pin')
+              }}
+              className="flex w-full cursor-pointer flex-col gap-0.5 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-accent"
+            >
+              <span className="truncate text-[length:var(--font-size-body)] text-foreground">
+                {skillDisplayName(skill)}
+              </span>
+              {skill.description && (
+                <span className="line-clamp-1 text-[length:var(--font-size-sm)] text-muted-foreground">
+                  {skill.description}
+                </span>
+              )}
+            </button>
+          </li>
+        ))}
+      </ul>
+      <div className="-mx-1 mt-1 border-t border-border px-1 pt-1">
+        <button
+          type="button"
+          onClick={() => {
+            setAddOpen(false)
+            void navigate('/settings/skills', { state: { createSkill: '' } })
+          }}
+          className="flex w-full cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[length:var(--font-size-body)] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+        >
+          <Plus className="size-4" />
+          New Skill
+        </button>
+      </div>
+    </>
+  )
+
+  const addMenu = (
+    <ResponsivePopover
+      open={addOpen}
+      onOpenChange={setAddOpen}
+      title="Add a skill"
+      // TooltipTrigger sits between the menu trigger slot and the button so
+      // both Radix roots merge their props onto the one real element.
+      trigger={pinCapReached ? <TooltipTrigger asChild>{addButton}</TooltipTrigger> : addButton}
+      desktopMenu={{
+        side: 'top',
+        align: 'start',
+        sideOffset: 8,
+        collisionPadding: 12,
+        className: 'w-60 max-w-[calc(100vw-1.5rem)] p-0',
+      }}
+    >
+      <div className="p-1">{addMenuContent}</div>
+    </ResponsivePopover>
+  )
+
+  const addControl = pinCapReached ? (
+    <Tooltip>
+      {addMenu}
+      <TooltipContent>{`Pin limit reached (${maxPinnedSkills}). Unpin one first.`}</TooltipContent>
+    </Tooltip>
+  ) : (
+    addMenu
   )
 
   return (
@@ -214,105 +304,7 @@ export const ChatSkillsBar = ({
             onUnpin={() => handleTogglePin(skill, 'unpin')}
           />
         ))}
-        <Popover open={addOpen} onOpenChange={(open) => dispatch({ type: 'ADD_POPOVER_TOGGLED', open })}>
-          {/* Tooltip only in the disabled pin-cap state — it explains why the
-              button doesn't work. The enabled `+` needs no hover copy. */}
-          {pinCapReached ? (
-            <Tooltip>
-              <TooltipTrigger asChild>{addButton}</TooltipTrigger>
-              <TooltipContent>{`Pin limit reached (${maxPinnedSkills}). Unpin one first.`}</TooltipContent>
-            </Tooltip>
-          ) : (
-            addButton
-          )}
-          {/*
-            `collisionPadding={12}` keeps the popover 12px off the viewport
-            edges. On mobile the content is sized to `calc(100vw-1.5rem)` (24px
-            narrower than the viewport), so collision avoidance pins it to a
-            12px-both-sides margin — i.e. exactly as wide as the chat composer
-            (px-3 insets) and centered on it, mirroring the chip dropdown. On
-            desktop the fixed `w-72` leaves room, so the padding never shifts
-            the `align="start"` anchor off the `+` button.
-          */}
-          <PopoverContent
-            side="top"
-            align="start"
-            sideOffset={8}
-            collisionPadding={12}
-            className={isMobile ? 'w-[calc(100vw-1.5rem)] p-1' : 'w-72 max-w-[calc(100vw-1.5rem)] p-1'}
-          >
-            {/* Search only appears once the list is long enough for scanning
-                to hurt (6+ rows) — a filter box above a short list is noise. */}
-            {pinnable.length > 5 && (
-              <div className="p-1 pb-2">
-                <SearchInput
-                  value={addQuery}
-                  onChange={(e) => dispatch({ type: 'ADD_QUERY_CHANGED', value: e.target.value })}
-                  inputSize="sm"
-                  placeholder="Search skills"
-                  aria-label="Search skills"
-                  autoFocus={!isMobile}
-                />
-              </div>
-            )}
-            <ul className="max-h-64 overflow-y-auto">
-              {pinnable.length === 0 && (
-                <li className="px-2 py-1.5 text-[length:var(--font-size-sm)] text-muted-foreground">
-                  All skills are pinned
-                </li>
-              )}
-              {pinnable.length > 0 && pinnableFiltered.length === 0 && (
-                <li className="px-2 py-1.5 text-[length:var(--font-size-sm)] text-muted-foreground">
-                  No matching skills
-                </li>
-              )}
-              {pinnableFiltered.map((skill) => (
-                <li key={skill.id}>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      // Close the popover synchronously so it doesn't sit open
-                      // while the mutation lands. A failure (e.g. a pin-cap
-                      // race past the guard) surfaces via `actionError`.
-                      dispatch({ type: 'ADD_POPOVER_TOGGLED', open: false })
-                      void handleTogglePin(skill, 'pin')
-                    }}
-                    // `rounded-lg` so the hover highlight sits concentrically
-                    // inside the `rounded-xl` container's `p-1` padding — outer
-                    // radius minus 4px padding. Matches the slash autocomplete
-                    // popover.
-                    className="flex w-full cursor-pointer flex-col gap-0.5 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-accent"
-                  >
-                    <span className="truncate text-[length:var(--font-size-body)] text-foreground">
-                      {skillDisplayName(skill)}
-                    </span>
-                    {skill.description && (
-                      <span className="line-clamp-1 text-[length:var(--font-size-sm)] text-muted-foreground">
-                        {skill.description}
-                      </span>
-                    )}
-                  </button>
-                </li>
-              ))}
-            </ul>
-            {/* Fixed footer below the scrollable list: full-bleed divider
-                (negative margins cancel the container's p-1) with a "New
-                skill" row that jumps to the create form in settings. */}
-            <div className="-mx-1 mt-1 border-t border-border px-1 pt-1">
-              <button
-                type="button"
-                onClick={() => {
-                  dispatch({ type: 'ADD_POPOVER_TOGGLED', open: false })
-                  void navigate('/settings/skills', { state: { createSkill: '' } })
-                }}
-                className="flex w-full cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[length:var(--font-size-body)] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-              >
-                <Plus className="size-4" />
-                New skill
-              </button>
-            </div>
-          </PopoverContent>
-        </Popover>
+        {addControl}
         {actionError && (
           <p role="alert" className="shrink-0 text-[length:var(--font-size-sm)] text-destructive">
             {actionError}

@@ -18,6 +18,7 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { modalAnimationClass, modalCloseClass, modalFieldSurfaceClass } from '@/components/ui/modal-styles'
+import { Scrim } from '@/components/ui/scrim'
 import { useIsMobile } from '@/hooks/use-mobile'
 import { cn } from '@/lib/utils'
 
@@ -37,6 +38,35 @@ type ResponsiveModalSurfaceVariant = 'structured' | 'composable'
 type ResponsiveModalDialogContentProps = ComponentProps<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean
   surfaceVariant: ResponsiveModalSurfaceVariant
+  flush?: boolean
+}
+
+/**
+ * Returns the shared inline geometry for a responsive modal surface.
+ *
+ * The mobile shell reserves the device insets (`--modal-top-inset` clears the
+ * pinned corner controls, `--modal-bottom-inset` the home indicator or the
+ * keyboard) so content sits between them and clips at their edges. This matters
+ * for the keyboard in particular: the shell is pinned at `h-dvh`, and `dvh` does
+ * not shrink when the keyboard opens, so without giving up that space the lower
+ * half of a form sits under the keyboard with nothing to scroll — the content
+ * still "fits" the viewport. Reserving it shrinks the surface's content box,
+ * which hands the overflow to the inner scroller.
+ *
+ * `flush` gives up both insets and runs the surface corner to corner instead,
+ * letting content scroll under the controls and the footer behind their scrims.
+ * The caller then pads its own scroll container by the same two variables, so
+ * content still starts clear of both at rest — and so the keyboard is still
+ * accounted for, just one level in.
+ */
+export const getResponsiveModalSurfaceStyle = (isMobile: boolean, flush = false) => {
+  if (!isMobile) {
+    return undefined
+  }
+  return {
+    paddingBottom: flush ? 0 : 'var(--modal-bottom-inset)',
+    paddingTop: flush ? 0 : 'var(--modal-top-inset)',
+  }
 }
 
 /** Returns the shared surface classes for a responsive modal viewport and API variant. */
@@ -62,6 +92,7 @@ const ResponsiveModalDialogContent = ({
   children,
   showCloseButton = true,
   surfaceVariant,
+  flush = false,
   ...props
 }: ResponsiveModalDialogContentProps) => {
   const { isMobile } = useIsMobile()
@@ -78,22 +109,27 @@ const ResponsiveModalDialogContent = ({
             getResponsiveModalSurfaceClass(isMobile, surfaceVariant),
             className,
           )}
-          style={
-            isMobile
-              ? {
-                  paddingBottom: 'calc(var(--safe-area-bottom-padding, 0px) + 24px)',
-                  paddingTop: 'calc(var(--safe-area-top-padding, 0px) + 56px)',
-                }
-              : undefined
-          }
+          style={getResponsiveModalSurfaceStyle(isMobile, flush)}
           {...props}
         >
+          {/* Content runs to the top of the window, so it needs the same scrim
+              the app header uses, keeping content legible as it scrolls behind
+              the pinned controls. */}
+          {isMobile && flush && (
+            <Scrim
+              data-slot="responsive-modal-top-scrim"
+              className="z-10"
+              height="calc(var(--modal-top-inset) + 2.5rem)"
+            />
+          )}
           {children}
           {showCloseButton && (
             <DialogClose
               data-slot="responsive-modal-close"
               className={cn(modalCloseClass, isMobile ? 'left-4' : 'right-4')}
-              style={{ top: isMobile ? 'calc(var(--safe-area-top-padding, 0px) + 16px)' : 16 }}
+              style={{
+                top: isMobile ? 'calc(var(--safe-area-top-padding, 0px) + var(--modal-control-inset))' : 16,
+              }}
             >
               <XIcon className="size-[var(--icon-size-default)]" />
               <span className="sr-only">Close</span>
@@ -204,11 +240,14 @@ export const ResponsiveModalActions = ({ className, ...props }: ResponsiveModalA
     className={cn(
       // No size/radius overrides here: action buttons style themselves via
       // mutedIconButtonClass, which mirrors the shared close control's
-      // responsive size (--touch-height-sm) and mobile circle shape.
+      // responsive size (--touch-height-lg on mobile, --touch-height-sm on
+      // desktop) and mobile circle shape. They also
+      // pair it with mobileHeaderControlFillClass so the tap target stays
+      // visible at rest, like the close control opposite them.
       'fixed right-4 z-10 flex items-center',
       className,
     )}
-    style={{ top: 'calc(var(--safe-area-top-padding, 0px) + 16px)' }}
+    style={{ top: 'calc(var(--safe-area-top-padding, 0px) + var(--modal-control-inset))' }}
     {...props}
   />
 )
@@ -236,9 +275,15 @@ export const ResponsiveModalContent = ({ className, centered, ...props }: Respon
 /** Standard secondary action for dismissing a responsive modal form. */
 export const ResponsiveModalCancel = ({
   children = 'Cancel',
+  className,
   ...props
 }: Omit<ComponentProps<typeof Button>, 'type' | 'variant'>) => (
-  <Button type="button" variant="outline" {...props}>
+  <Button
+    type="button"
+    variant="outline"
+    className={cn('max-md:bg-background/80 max-md:backdrop-blur-md max-md:dark:bg-card/80', className)}
+    {...props}
+  >
     {children}
   </Button>
 )
@@ -249,6 +294,12 @@ export const ResponsiveModalCancel = ({
 
 type ResponsiveModalContentComposableProps = ComponentProps<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean
+  /** Run mobile content corner to corner and let it scroll under the pinned
+   *  controls and the footer behind their scrims, instead of sitting between
+   *  them. The content must then pad its own scroll container — top by
+   *  `--modal-top-inset`, bottom by enough to clear its pinned footer (see
+   *  `DetailPanel`). */
+  flush?: boolean
 }
 
 /**
@@ -259,6 +310,7 @@ export const ResponsiveModalContentComposable = ({
   className,
   children,
   showCloseButton = true,
+  flush = false,
   ...props
 }: ResponsiveModalContentComposableProps) => {
   return (
@@ -266,6 +318,7 @@ export const ResponsiveModalContentComposable = ({
       className={className}
       showCloseButton={showCloseButton}
       surfaceVariant="composable"
+      flush={flush}
       {...props}
     >
       {children}

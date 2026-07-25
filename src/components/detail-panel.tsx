@@ -8,6 +8,7 @@ import type { ReactNode } from 'react'
 import { SlideInPanel } from '@/components/slide-in-panel'
 import { Button, mutedIconButtonClass } from '@/components/ui/button'
 import { Dialog } from '@/components/ui/dialog'
+import { floatingFormFooterClass } from '@/components/ui/form-footer'
 import { panelFieldSurfaceClass } from '@/components/ui/modal-styles'
 import {
   ResponsiveModalContentComposable,
@@ -17,6 +18,7 @@ import {
   ResponsiveModalTitle,
   useResponsiveModalContext,
 } from '@/components/ui/responsive-modal'
+import { useIsMobile } from '@/hooks/use-mobile'
 import { cn } from '@/lib/utils'
 
 /**
@@ -58,16 +60,18 @@ export const DetailPanel = ({ icon, title, subtitle, actions, onClose, children 
   const { isMobile } = useResponsiveModalContext()
 
   return (
-    <section className="relative flex h-full flex-1 flex-col overflow-hidden px-4 pb-5 text-foreground md:px-6">
-      {isMobile ? (
-        <>
-          <ResponsiveModalHeader className="mb-0 px-12">
-            <ResponsiveModalTitle>{title}</ResponsiveModalTitle>
-            {subtitle && <ResponsiveModalDescription>{subtitle}</ResponsiveModalDescription>}
-          </ResponsiveModalHeader>
-          {actions && <ResponsiveModalActions>{actions}</ResponsiveModalActions>}
-        </>
-      ) : (
+    // No bottom padding on mobile: the scroll container below carries the
+    // safe-area / keyboard inset, so adding one here would double it and strand
+    // the footer above the window edge.
+    <section
+      className="relative flex h-full flex-1 flex-col overflow-hidden px-4 text-foreground md:px-6 md:pb-5"
+      style={isMobile ? { maxHeight: 'calc(100% - var(--kb, 0px))' } : undefined}
+    >
+      {/* Mobile pins only the two corner controls — the title block scrolls with
+          the body below, passing under them behind the shell's scrim. */}
+      {isMobile && actions && <ResponsiveModalActions>{actions}</ResponsiveModalActions>}
+
+      {!isMobile && (
         // mt-2.5 brings the icon tile's top gap to 24px ((64 − 36) / 2 + 10),
         // matching the panel's md:px-6 left padding.
         <header className="relative mt-2.5 flex h-16 shrink-0 items-center justify-between gap-4">
@@ -97,14 +101,23 @@ export const DetailPanel = ({ icon, title, subtitle, actions, onClose, children 
         </header>
       )}
 
+      {/* On mobile the panel frame ends at the keyboard boundary, giving this
+          body a genuinely smaller scrollport. Bottom padding reserves the
+          absolutely positioned action row; the generated keyboard-height
+          spacer provides real scroll runway even when a short form otherwise
+          fits and iOS has panned its focused field awkwardly. */}
       <div
         className={cn(
-          'flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto md:pt-4',
-          subtitle ? 'pt-8' : 'pt-6',
-          '[&_[data-slot=form-footer]]:sticky [&_[data-slot=form-footer]]:bottom-0 [&_[data-slot=form-footer]]:z-10 [&_[data-slot=form-footer]]:bg-background',
-          'md:[&_[data-slot=form-footer]]:static md:[&_[data-slot=form-footer]]:bg-transparent',
+          "flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto md:pt-4 max-md:pt-[calc(var(--modal-top-inset)+1rem)] max-md:pb-[calc(var(--touch-height-default)+var(--modal-footer-inset))] max-md:after:h-[var(--kb,0px)] max-md:after:shrink-0 max-md:after:content-['']",
+          floatingFormFooterClass,
         )}
       >
+        {isMobile && (
+          <ResponsiveModalHeader className="mb-0">
+            <ResponsiveModalTitle>{title}</ResponsiveModalTitle>
+            {subtitle && <ResponsiveModalDescription>{subtitle}</ResponsiveModalDescription>}
+          </ResponsiveModalHeader>
+        )}
         {children}
       </div>
     </section>
@@ -113,7 +126,6 @@ export const DetailPanel = ({ icon, title, subtitle, actions, onClose, children 
 
 type DetailPanelSurfaceProps = {
   open: boolean
-  isMobile: boolean
   onClose: () => void
   children: ReactNode
 }
@@ -130,7 +142,9 @@ type DetailPanelSurfaceProps = {
  * right edge stays flush and square with only the left corners rounded. Mobile
  * uses the same full-screen fade/scale modal as other responsive views.
  */
-export const DetailPanelSurface = ({ open, isMobile, onClose, children }: DetailPanelSurfaceProps) => {
+export const DetailPanelSurface = ({ open, onClose, children }: DetailPanelSurfaceProps) => {
+  const { isMobile } = useIsMobile()
+
   if (!isMobile) {
     return (
       // The warm 6% glow is invisible on the dark background (same rationale
@@ -156,7 +170,9 @@ export const DetailPanelSurface = ({ open, isMobile, onClose, children }: Detail
   }
   return (
     <Dialog open={open} onOpenChange={(nextOpen) => !nextOpen && onClose()}>
-      <ResponsiveModalContentComposable className="gap-0 p-0">{children}</ResponsiveModalContentComposable>
+      <ResponsiveModalContentComposable className="gap-0 p-0" flush>
+        {children}
+      </ResponsiveModalContentComposable>
     </Dialog>
   )
 }

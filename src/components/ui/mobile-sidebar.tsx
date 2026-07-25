@@ -8,11 +8,15 @@ import { isMobile as isPlatformMobile } from '@/lib/platform'
 import { cn } from '@/lib/utils'
 import * as DialogPrimitive from '@radix-ui/react-dialog'
 import { animate, m, useMotionValue, useReducedMotion, useTransform, type PanInfo } from 'framer-motion'
-import { useEffect, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from 'react'
+import { useEffect, useEffectEvent, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from 'react'
 
 type MobileSidebarProps = {
   open: boolean
   onOpenChange: (open: boolean) => void
+  /** Fires once the close animation has fully settled (both the external
+   *  `open=false` path and user-initiated dismissals). Lets callers defer
+   *  heavy work — e.g. navigation — until the spring is done. */
+  onCloseComplete?: () => void
   children: ReactNode
   side?: 'left' | 'right'
   className?: string
@@ -48,6 +52,7 @@ export const shouldCloseOnDragEnd = (side: 'left' | 'right', info: PanInfo): boo
 export const MobileSidebar = ({
   open,
   onOpenChange,
+  onCloseComplete,
   children,
   side = 'left',
   className,
@@ -79,6 +84,17 @@ export const MobileSidebar = ({
     side === 'left' ? [0, 1] : [1, 0],
   )
 
+  // Effect-event wrapper keeps the close-animation effect's deps free of the
+  // callback prop, so an unstable inline callback can't re-run the animation.
+  const notifyCloseComplete = useEffectEvent(() => onCloseComplete?.())
+
+  // If the drawer unmounts mid-close (e.g. the viewport crosses to desktop
+  // while the spring is running), the animation never settles and the pending
+  // notification would be dropped — callers awaiting `closeMobileSidebar()`
+  // would hang forever. Flush on unmount; the provider's resolver queue
+  // no-ops when nothing is pending.
+  useEffect(() => () => notifyCloseComplete(), [])
+
   // Handle external open/close requests
   useEffect(() => {
     if (open && !internalOpen) {
@@ -99,6 +115,7 @@ export const MobileSidebar = ({
         await animate(x, side === 'left' ? -sidebarWidth : sidebarWidth, transition)
         setIsAnimating(false)
         setInternalOpen(false)
+        notifyCloseComplete()
       }
       animateClose()
     }
@@ -115,6 +132,7 @@ export const MobileSidebar = ({
     setIsAnimating(false)
     setInternalOpen(false)
     onOpenChange(false)
+    onCloseComplete?.()
   }
 
   const handleDragEnd = async (_event: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
@@ -159,7 +177,7 @@ export const MobileSidebar = ({
           onDragEnd={handleDragEnd}
           style={{ x, ...style }}
           className={cn(
-            'bg-sidebar text-sidebar-foreground fixed inset-y-0 z-50 h-full w-[80vw] shadow-lg flex flex-col will-change-transform',
+            'bg-sidebar/80 text-sidebar-foreground fixed inset-y-0 z-50 h-full w-[80vw] shadow-lg flex flex-col backdrop-blur-lg will-change-transform',
             side === 'left' ? 'left-0' : 'right-0',
             className,
           )}
