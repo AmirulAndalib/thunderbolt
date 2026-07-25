@@ -8,14 +8,12 @@ import { useIsMobile } from '@/hooks/use-mobile'
 import { useNavigate } from 'react-router'
 
 /**
- * Model picker for the chat composer. Renders to the immediate right of the
- * ChatModePicker and only for the built-in Thunderbolt agent — managed-acp and
- * remote-acp agents own their own model selection upstream, so it is hidden for
- * them (mirroring {@link ChatModePicker}).
+ * Model picker for the chat composer. Renders only for the built-in
+ * Thunderbolt agent — managed-acp and remote-acp agents own their own model
+ * selection upstream, so it is hidden for them.
  *
- * Uses the `composer` ModelSelector variant so it visually pairs with the
- * ModeSelector sitting beside it, and mirrors its open direction (down on
- * desktop, up on mobile) so the two dropdowns stay consistent.
+ * Uses the `composer` ModelSelector variant, opening down on desktop and up
+ * on mobile (above the bottom-anchored composer).
  */
 export const ChatModelPicker = () => {
   const models = useChatStore((state) => state.models)
@@ -39,7 +37,9 @@ export const ChatModelPicker = () => {
       selectedModel={selectedModel ?? null}
       chatThread={chatThread ?? null}
       onModelChange={handleModelChange}
-      onAddModels={() => navigate('/settings/models')}
+      // One-shot deep link (see useConsumeNavState): lands with the Add Model
+      // panel already open instead of on the bare list.
+      onAddModels={() => navigate('/settings/models', { state: { createModel: '' } })}
       side={isMobile ? 'top' : 'bottom'}
       align="end"
     />

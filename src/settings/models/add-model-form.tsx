@@ -14,6 +14,7 @@ import { Input } from '@/components/ui/input'
 import { ResponsiveModalCancel } from '@/components/ui/responsive-modal'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { StatusCard } from '@/components/ui/status-card'
+import { useAutofocusOnMount } from '@/hooks/use-autofocus-on-mount'
 import type { Model } from '@/types'
 import { ConnectionTestSection } from './connection-test-section'
 import { catalogRequiresApiKey, providerAutoFetchesCatalog, shouldDisableAddModel } from './model-policy'
@@ -92,6 +93,11 @@ export const AddModelForm = ({
   const apiKey = form.watch('apiKey')
   const url = form.watch('url')
   const model = form.watch('model')
+
+  // The user just chose "New Model" / "Add Model" — land ready to pick a
+  // provider (the form's first control).
+  const providerTriggerRef = useAutofocusOnMount<HTMLButtonElement>()
+
   const showModelSelection =
     !catalogError &&
     (providerAutoFetchesCatalog(provider) || Boolean(apiKey) || (provider === 'custom' && Boolean(url)))
@@ -113,7 +119,7 @@ export const AddModelForm = ({
                   }}
                   value={field.value}
                 >
-                  <SelectTrigger className="w-full rounded-lg">
+                  <SelectTrigger ref={providerTriggerRef} className="w-full rounded-lg">
                     <SelectValue placeholder="Select provider" />
                   </SelectTrigger>
                   <SelectContent>

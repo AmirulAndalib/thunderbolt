@@ -22,6 +22,11 @@ export type AgentSelectorProps = {
   onSelect: (agent: Agent) => void
   onAddAgent?: () => void
   disabled?: boolean
+  /** Collapses the trigger into a circular icon-only button (the mobile
+   *  header's top-right control, matching the sidebar toggle's muted circle).
+   *  The label and paddings transition, so toggling this mid-mount morphs the
+   *  pill smoothly instead of swapping shapes. */
+  collapsed?: boolean
   side?: 'top' | 'bottom' | 'left' | 'right'
   align?: 'start' | 'center' | 'end'
 }
@@ -79,6 +84,7 @@ export const AgentSelector = ({
   onSelect,
   onAddAgent,
   disabled = false,
+  collapsed = false,
   side,
   align,
 }: AgentSelectorProps) => {
@@ -103,38 +109,65 @@ export const AgentSelector = ({
         data-testid="agent-selector-trigger"
         aria-disabled={disabled}
         className={cn(
-          'flex h-[var(--touch-height-sm)] max-w-[50vw] items-center gap-2 rounded-full px-3 text-[length:var(--font-size-body)] transition-colors max-md:h-[var(--touch-height-lg)] max-md:backdrop-blur-md max-md:active:bg-muted-foreground/20 md:max-w-none',
+          'group relative h-[var(--touch-height-sm)] max-w-[50vw] text-[length:var(--font-size-body)] max-md:h-[var(--touch-height-lg)] md:max-w-none',
           disabled ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer',
-          // Light secondary is nearly the same shade as the page background,
-          // so at 50% the hover reads as invisible — use full accent there
-          // (same hover as the header's ghost buttons). Dark keeps the
-          // subtler half-secondary.
-          !disabled && isOpen ? 'bg-secondary' : 'hover:bg-accent dark:hover:bg-secondary/50',
         )}
       >
-        <Icon
-          className={cn('text-muted-foreground shrink-0', triggerAgent.type === 'built-in' ? 'size-4' : 'size-3.5')}
-        />
-        {/* Muted like the mode/model picker labels — chrome, not content. */}
-        <span className="font-medium truncate text-muted-foreground">{selected?.label ?? selectedAgent.name}</span>
-        <ChevronDown
+        {/* The fixed-width labeled pill is never resized. On mobile it simply
+            fades away while its parent slides right, avoiding all per-frame
+            layout work and truncation artifacts. It remains in flow (and
+            therefore keeps the trigger width stable) while transparent. */}
+        <div
           className={cn(
-            'size-3.5 text-muted-foreground transition-transform shrink-0',
-            !disabled && isOpen && 'rotate-180',
+            'relative z-10 flex h-full items-center rounded-full px-3 transition-[opacity,background-color,color] duration-150',
+            collapsed ? 'opacity-0' : 'opacity-100',
+            !disabled && isOpen
+              ? 'bg-secondary'
+              : !collapsed && 'hover:bg-accent max-md:group-active:bg-muted-foreground/20 dark:hover:bg-secondary/50',
           )}
-        />
+        >
+          <Icon
+            className={cn(
+              'max-w-none shrink-0 text-muted-foreground',
+              triggerAgent.type === 'built-in' ? 'size-4' : 'size-3.5',
+            )}
+          />
+          <span className="min-w-0 truncate pl-2 font-medium text-muted-foreground">
+            {selected?.label ?? selectedAgent.name}
+          </span>
+          {/* Hidden on mobile: the menu opens as an animated card there, so the
+              chevron affordance is redundant. */}
+          <ChevronDown
+            className={cn(
+              'ml-2 size-3.5 shrink-0 text-muted-foreground transition-transform max-md:hidden',
+              !disabled && isOpen && 'rotate-180',
+            )}
+          />
+        </div>
+
+        {/* Independent logo-only circle beneath the pill. Crossfading these
+            layers means the moving element never changes width; only opacity
+            and the header wrapper's translate animate. */}
+        <div
+          aria-hidden="true"
+          data-testid="agent-selector-collapsed-circle"
+          className={cn(
+            'pointer-events-none absolute right-0 top-0 z-0 flex size-[var(--touch-height-lg)] items-center justify-center rounded-full bg-muted/80 transition-opacity duration-150 group-active:bg-muted-foreground/20 dark:bg-muted/40 md:hidden',
+            collapsed ? 'opacity-100' : 'opacity-0',
+          )}
+        >
+          <Icon className="max-w-none size-[var(--icon-size-default)] text-muted-foreground" />
+        </div>
       </div>
     )
 
-    if (!disabled) {
-      return triggerInner
-    }
-
+    // Keep the wrapper mounted when `disabled` changes on send; remounting the
+    // trigger would cancel its slide and crossfade.
     return (
       <TooltipProvider>
         <Tooltip>
           <TooltipTrigger asChild>{triggerInner}</TooltipTrigger>
-          <TooltipContent side="bottom">Cannot change agent during reply</TooltipContent>
+          {disabled && <TooltipContent side="bottom">Cannot change agent during reply</TooltipContent>}
         </Tooltip>
       </TooltipProvider>
     )

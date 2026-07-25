@@ -6,6 +6,7 @@ import { useReducer } from 'react'
 import { Check, Loader2, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { FormFooter } from '@/components/ui/form-footer'
+import { useAutofocusOnMount } from '@/hooks/use-autofocus-on-mount'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { ResponsiveModalCancel } from '@/components/ui/responsive-modal'
@@ -108,6 +109,10 @@ export const AddCustomAgentForm = ({
 }: AddCustomAgentFormProps) => {
   const [state, dispatch] = useReducer(agentFormReducer, emptyState)
 
+  // The user just chose "Add agent" — land ready to type a name (same idiom
+  // as SkillForm).
+  const nameInputRef = useAutofocusOnMount<HTMLInputElement>()
+
   const trimmedName = state.name.trim()
   const trimmedUrl = state.url.trim()
   const trimmedDescription = state.description.trim()
@@ -178,6 +183,7 @@ export const AddCustomAgentForm = ({
           <Label htmlFor="agent-name">Name</Label>
           <Input
             id="agent-name"
+            ref={nameInputRef}
             placeholder="My Agent"
             value={state.name}
             onChange={(e) => dispatch({ type: 'NAME_CHANGED', value: e.target.value })}

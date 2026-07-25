@@ -8,7 +8,6 @@ import { builtInAgent } from '@/defaults/agents'
 import {
   createMockChatInstance,
   createMockChatThread,
-  createMockMode,
   createMockModel,
   hydrateStore,
   resetStore,
@@ -54,15 +53,14 @@ const TestWrapper = ({ children }: { children: ReactNode }) => (
   </MemoryRouter>
 )
 
-/** Hydrates the store with a built-in session, then patches the agent. Mirrors
- *  the ChatModePicker test: `hydrateStore` always assigns `builtInAgent`, so we
- *  mutate the session map directly to avoid the DB write `setSelectedAgent` does. */
+/** Hydrates the store with a built-in session, then patches the agent.
+ *  `hydrateStore` always assigns `builtInAgent`, so we mutate the session map
+ *  directly to avoid the DB write `setSelectedAgent` does. */
 const setupWithAgent = (agent: Agent, models = [gpt4, gpt5]) => {
   hydrateStore({
     chatInstance: createMockChatInstance(),
     chatThread: createMockChatThread(),
     id: 'thread-1',
-    modes: [createMockMode({ id: 'mode-chat', name: 'chat', label: 'Chat', icon: 'message-square' })],
     models,
     selectedModel: models[0],
     triggerData: null,

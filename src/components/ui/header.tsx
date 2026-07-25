@@ -23,6 +23,10 @@ import { useChat } from '@ai-sdk/react'
 import { statusOnlyThrottleMs } from '@/chats/chat-throttle'
 import type { Agent } from '@/types/acp'
 
+/** Marks an element as part of the Tauri desktop window's drag surface (empty
+ *  on web/mobile where no custom title bar exists). */
+type TauriDragProps = { 'data-tauri-drag-region'?: boolean }
+
 /** Subscribes to the active chat instance's status to disable the agent
  *  selector while a reply is streaming. Pulled into its own component so
  *  `useChat` is only mounted when a session exists. */
@@ -34,6 +38,12 @@ type HeaderAgentSelectorProps = {
   /** Omitted when the deployment forbids custom agents — the selector then hides
    *  its "Add Agent" footer. */
   onAddAgent?: () => void
+  /** Mobile-only presentation. When set, the selector renders inside its own
+   *  absolutely positioned wrapper: centered as a labeled pill on an empty new
+   *  chat, and docked top-right as a circular icon button once the thread
+   *  exists (or a send is in flight). Both states share one element, so the
+   *  submit transition animates instead of remounting. */
+  mobile?: { hasThread: boolean; dragProps: TauriDragProps }
 }
 
 const HeaderAgentSelector = ({
@@ -42,18 +52,56 @@ const HeaderAgentSelector = ({
   agents,
   onSelect,
   onAddAgent,
+  mobile,
 }: HeaderAgentSelectorProps) => {
   const { status } = useChat({ chat: chatInstance, experimental_throttle: statusOnlyThrottleMs })
-  const disabled = status === 'streaming' || status === 'submitted'
+  const isReplying = status === 'streaming' || status === 'submitted'
+  // `status` flips to `submitted` synchronously on send, so the transition starts
+  // the moment the user submits — before the thread row lands in the store.
+  // Existing chats mount with `hasThread` already true, so they render docked
+  // top-right with no transition (CSS transitions don't run on first paint).
+  const collapsed = mobile !== undefined && (mobile.hasThread || isReplying)
 
-  return (
+  const selector = (
     <AgentSelector
       selectedAgent={selectedAgent}
       agents={agents}
       onSelect={onSelect}
       onAddAgent={onAddAgent}
-      disabled={disabled}
+      disabled={isReplying}
+      collapsed={collapsed}
     />
+  )
+
+  if (!mobile) {
+    return selector
+  }
+
+  return (
+    // Absolutely positioned so the macOS traffic-light clearance on the left
+    // column can't push the centered state off-center. Docked: a translate of
+    // half the header width (50cqw — the header is a size container) minus the
+    // pill's own width pins the right edge flush with the content edge (cqw is
+    // content-box based, so the header's px-2 padding provides the gap).
+    //
+    // Only `translate` transitions — `left` stays fixed. Animating `left`
+    // re-runs layout on the main thread every frame, and this slide fires at
+    // the busiest main-thread moment in the app (first send mounts the message
+    // list), which made it visibly stutter. A translate-only transition runs
+    // on the compositor and stays smooth regardless of main-thread load.
+    //
+    // The trigger width stays fixed throughout. Its labeled pill and logo-only
+    // circle crossfade internally (see AgentSelector), so this wrapper only
+    // animates translate and both directions remain compositor-driven.
+    <div
+      {...mobile.dragProps}
+      className={cn(
+        'absolute top-2 left-1/2 z-10 flex items-center transition-[translate] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]',
+        collapsed ? '[translate:calc(50cqw-100%)_0]' : '[translate:-50%_0]',
+      )}
+    >
+      {selector}
+    </div>
   )
 }
 
@@ -113,7 +161,7 @@ export const Header = () => {
   // into the mobile-style layout. `<WindowControls />` renders its Win/Linux
   // buttons inline on the right (self-nulls on macOS/web).
   const isDragRegionEnabled = isTauriDesktop()
-  const dragProps = isDragRegionEnabled ? { 'data-tauri-drag-region': true } : {}
+  const dragProps: TauriDragProps = isDragRegionEnabled ? { 'data-tauri-drag-region': true } : {}
   // The macOS traffic lights (ending at ~x=68) are wider than the collapsed
   // 48px icon rail, so nudge the header content right of the overhang with
   // some breathing room so the agent selector pill doesn't crowd the buttons.
@@ -123,7 +171,7 @@ export const Header = () => {
   const allAgents = useAllAgents()
   const allowCustomAgents = useConfigStore((state) => selectAllowCustomAgents(state.config))
 
-  const { chatInstance, selectedAgent, setSelectedAgent, chatThreadId } = useChatStore(
+  const { chatInstance, selectedAgent, setSelectedAgent, chatThreadId, hasThread } = useChatStore(
     useShallow((state) => {
       const session = state.sessions.get(state.currentSessionId ?? '')
 
@@ -132,6 +180,7 @@ export const Header = () => {
         selectedAgent: session?.selectedAgent,
         setSelectedAgent: state.setSelectedAgent,
         chatThreadId: session?.id,
+        hasThread: session?.chatThread != null,
       }
     }),
   )
@@ -147,7 +196,9 @@ export const Header = () => {
   const showAgentSelector = isChatRoute && chatInstance !== undefined && allAgents.length > 0
 
   const handleAddAgent = () => {
-    navigate('/settings/agents')
+    // One-shot deep link (see useConsumeNavState): lands with the Add Custom
+    // Agent panel already open instead of on the bare list.
+    navigate('/settings/agents', { state: { createAgent: '' } })
   }
 
   const handleAgentSelect = (agent: Agent) => {
@@ -163,15 +214,20 @@ export const Header = () => {
       agents={allAgents}
       onSelect={handleAgentSelect}
       onAddAgent={allowCustomAgents ? handleAddAgent : undefined}
+      mobile={isMobile ? { hasThread, dragProps } : undefined}
     />
   )
 
-  // Mobile: 3-column layout. Center holds the agent selector.
+  // Mobile: sidebar toggle on the left; the agent selector positions itself
+  // (centered pill on an empty new chat, top-right circle once the chat has
+  // content — see HeaderAgentSelector).
   if (isMobile) {
     return (
       <header
         {...dragProps}
-        className="relative flex h-[var(--touch-height-xl)] w-full items-start justify-between px-2 pt-2 flex-shrink-0"
+        // `@container` lets the agent pill's docked translate use 50cqw (half
+        // the header width) so its slide can be translate-only (see above).
+        className="@container relative flex h-[var(--touch-height-xl)] w-full items-start justify-between px-2 pt-2 flex-shrink-0"
       >
         <div {...dragProps} className={cn('flex flex-1 items-center', isMacDesktop() && 'pl-20')}>
           {/* The same panel glyph as the desktop toggle, so one icon means
@@ -191,19 +247,10 @@ export const Header = () => {
           </Button>
         </div>
 
-        {/* Absolutely centered so the macOS traffic-light clearance on the
-            left column can't push it off-center — flex sizing counts that
-            padding as part of the column's outer width, so symmetric flex-1
-            columns alone don't keep the middle truly centered. */}
-        <div
-          {...dragProps}
-          className="absolute left-1/2 top-2 z-10 flex -translate-x-1/2 items-center justify-center gap-2"
-        >
-          {agentSelector}
-        </div>
+        {agentSelector}
 
-        {/* Empty right column — keeps the centered agent selector balanced and
-            stays a drag surface on the Tauri desktop app. */}
+        {/* Empty right column — keeps the header row a drag surface on the
+            Tauri desktop app. */}
         <div {...dragProps} className="flex flex-1 items-center" />
       </header>
     )

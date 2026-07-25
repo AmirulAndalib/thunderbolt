@@ -94,6 +94,8 @@ export const ChatListItem = memo(
       onRename(thread.id, title)
     }
 
+    const showSpinner = status === 'streaming'
+
     if (isCollapsed) {
       return (
         <SidebarMenuButton
@@ -102,7 +104,7 @@ export const ChatListItem = memo(
           className="cursor-pointer"
           tooltip={thread.title ?? undefined}
         >
-          {status === 'streaming' ? (
+          {showSpinner ? (
             <Loader2 className="size-[var(--icon-size-default)] animate-spin text-muted-foreground" />
           ) : (
             <MessageCircle className="size-[var(--icon-size-default)] shrink-0" />
@@ -154,7 +156,7 @@ export const ChatListItem = memo(
                 >
                   <div className="flex items-center gap-2 flex-1 min-w-0">
                     <AnimatePresence>
-                      {status === 'streaming' && (
+                      {showSpinner && (
                         <m.div
                           key={`${thread.id}-loading`}
                           initial={{ opacity: 0, width: 0 }}
