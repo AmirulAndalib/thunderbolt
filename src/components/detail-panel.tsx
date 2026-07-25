@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 import { X } from 'lucide-react'
-import type { ReactNode } from 'react'
+import type { AnimationEvent, ReactNode } from 'react'
 
 import { SlideInPanel } from '@/components/slide-in-panel'
 import { Button, mutedIconButtonClass } from '@/components/ui/button'
@@ -120,6 +120,12 @@ export const DetailPanel = ({ icon, title, subtitle, actions, onClose, children 
 type DetailPanelSurfaceProps = {
   open: boolean
   onClose: () => void
+  /** Fires after the responsive surface finishes its close animation. */
+  onCloseComplete?: () => void
+  /** Float the desktop card off the top window edge too — for surfaces that
+   *  overlay arbitrary routes (the quick-create panels) rather than sitting
+   *  under a settings page header that already provides the inset. */
+  topInset?: boolean
   children: ReactNode
 }
 
@@ -135,7 +141,13 @@ type DetailPanelSurfaceProps = {
  * right edge stays flush and square with only the left corners rounded. Mobile
  * uses the same full-screen fade/scale modal as other responsive views.
  */
-export const DetailPanelSurface = ({ open, onClose, children }: DetailPanelSurfaceProps) => {
+export const DetailPanelSurface = ({
+  open,
+  onClose,
+  onCloseComplete,
+  topInset = false,
+  children,
+}: DetailPanelSurfaceProps) => {
   const { isMobile } = useIsMobile()
 
   if (!isMobile) {
@@ -145,10 +157,15 @@ export const DetailPanelSurface = ({ open, onClose, children }: DetailPanelSurfa
       // a slightly stronger black ink at the same blur radius.
       <SlideInPanel
         open={open}
-        width="clamp(440px, calc(50vw - 128px), 520px)"
+        onCloseComplete={onCloseComplete}
+        // The clamp floor is --create-panel-min-width (480px, index.css
+        // :root). It plus the 360px ResizablePanel minSize in main-layout.tsx
+        // derive the 840px create-item-layout container breakpoint in
+        // index.css — re-derive that literal if either floor changes.
+        width="clamp(var(--create-panel-min-width), calc(50vw - 128px), 540px)"
         className="[filter:drop-shadow(var(--shadow-glow-strong))] dark:[filter:drop-shadow(0_0_32px_rgb(0_0_0/24%))]"
       >
-        <div className="h-full pb-12">
+        <div className={cn('h-full pb-12', topInset && 'pt-12')}>
           <div
             className={cn(
               'h-full overflow-hidden rounded-l-2xl border border-r-0 border-border/60 bg-sidebar',
@@ -163,7 +180,15 @@ export const DetailPanelSurface = ({ open, onClose, children }: DetailPanelSurfa
   }
   return (
     <Dialog open={open} onOpenChange={(nextOpen) => !nextOpen && onClose()}>
-      <ResponsiveModalContentComposable className="gap-0 p-0" flush>
+      <ResponsiveModalContentComposable
+        className="gap-0 p-0"
+        flush
+        onAnimationEnd={(event: AnimationEvent<HTMLDivElement>) => {
+          if (!open && event.target === event.currentTarget) {
+            onCloseComplete?.()
+          }
+        }}
+      >
         {children}
       </ResponsiveModalContentComposable>
     </Dialog>

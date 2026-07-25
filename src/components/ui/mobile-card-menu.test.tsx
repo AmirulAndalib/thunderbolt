@@ -21,7 +21,11 @@ describe('MobileCardMenu', () => {
     const drawer = screen.getByText('Choose model').closest('[data-slot="drawer-content"]')
     expect(drawer).toHaveClass('w-full')
     expect(drawer).toHaveClass('bg-popover/80', 'backdrop-blur-lg')
-    expect(drawer).toHaveClass('data-[swipe-direction=down]:rounded-t-3xl')
+    expect(drawer).toHaveClass(
+      'data-[swipe-direction=down]:rounded-t-3xl',
+      'data-[swipe-direction=down]:shadow-[var(--shadow-drawer-down)]',
+    )
+    expect(drawer).not.toHaveClass('data-[swipe-direction=down]:border-t', 'shadow-2xl')
     expect(drawer).toHaveAttribute('data-swipe-direction', 'down')
     expect(document.querySelector('[data-slot="drawer-handle"]')).toHaveClass(
       'h-1',
@@ -41,14 +45,37 @@ describe('MobileCardMenu', () => {
 
     const drawer = screen.getByText('Choose agent').closest('[data-slot="drawer-content"]')
     expect(drawer).toHaveAttribute('data-swipe-direction', 'up')
-    expect(drawer).toHaveClass('data-[swipe-direction=up]:rounded-b-3xl')
+    expect(drawer).toHaveClass(
+      'data-[swipe-direction=up]:rounded-b-3xl',
+      'data-[swipe-direction=up]:shadow-[var(--shadow-drawer-up)]',
+    )
+    expect(drawer).not.toHaveClass('data-[swipe-direction=up]:border-b', 'shadow-2xl')
 
     const overlay = document.querySelector('[data-slot="drawer-overlay"]')
     expect(overlay).toBeInTheDocument()
-    expect(overlay).toHaveClass('backdrop-blur-sm', 'backdrop-saturate-75')
+    expect(overlay).toHaveClass('backdrop-blur-xs', 'backdrop-saturate-75')
     fireEvent.keyDown(document, { key: 'Escape' })
     // Not toHaveBeenCalledWith: Base UI passes an eventDetails object as a
     // second argument, and bun's deep-equal spins on its happy-dom internals.
+    expect(onOpenChange).toHaveBeenCalledTimes(1)
+    expect(onOpenChange.mock.calls[0]?.[0]).toBe(false)
+  })
+
+  it('isolates pointer gestures from parent swipe areas and dismisses on outside click', () => {
+    const onOpenChange = mock<(open: boolean) => void>(() => {})
+    const onParentPointerDown = mock<() => void>(() => {})
+    render(
+      <div onPointerDown={onParentPointerDown}>
+        <MobileCardMenu open onOpenChange={onOpenChange} title="Choose model">
+          <button type="button">Model one</button>
+        </MobileCardMenu>
+      </div>,
+    )
+
+    const viewport = document.querySelector('[data-slot="drawer-viewport"]') as HTMLElement
+    fireEvent.pointerDown(viewport, { pointerType: 'mouse', button: 0 })
+    expect(onParentPointerDown).not.toHaveBeenCalled()
+    fireEvent.click(viewport)
     expect(onOpenChange).toHaveBeenCalledTimes(1)
     expect(onOpenChange.mock.calls[0]?.[0]).toBe(false)
   })

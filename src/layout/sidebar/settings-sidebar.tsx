@@ -13,7 +13,6 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from '@/components/ui/sidebar'
-import { useIsNativeMobile } from '@/hooks/use-mobile'
 import { cn } from '@/lib/utils'
 import { Bot, Cpu, Plug, SlidersHorizontal, Smartphone, Zap, type LucideIcon } from 'lucide-react'
 import { Fragment } from 'react'
@@ -65,7 +64,6 @@ export const SettingsSidebarContent = ({
   onSettingsNavigate,
 }: SettingsSidebarContentProps) => {
   const { isMobile, toggleSidebar } = useSidebar()
-  const isNativeMobile = useIsNativeMobile()
   const location = useLocation()
 
   const isItemActive = ({ path, matchPrefix }: NavItem) =>
@@ -99,8 +97,8 @@ export const SettingsSidebarContent = ({
               it. The last group keeps its bottom padding against the footer. */}
           <SidebarGroup
             className={cn(
-              isCollapsed && (index === navGroups.length - 1 ? 'pt-0' : 'py-0'),
-              isNativeMobile && index === 0 && 'pt-1',
+              isCollapsed ? (index === navGroups.length - 1 ? 'pt-0' : 'py-0') : undefined,
+              isMobile && index === 0 && 'pt-[calc(var(--header-safe-area-top)+0.5rem)]',
             )}
           >
             {isMobile && index === 0 && (

@@ -29,18 +29,18 @@ import { Button } from '@/components/ui/button'
 import { MobileBlurBackdrop } from '@/components/ui/mobile-blur-backdrop'
 import { NavLink } from '@/components/ui/nav-link'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { MobileSidebarScrim } from '@/components/ui/scrim'
 import { SidebarFooter as ShadcnSidebarFooter, useSidebar } from '@/components/ui/sidebar'
 import { Switch } from '@/components/ui/switch'
 import { useAuth, useSignInModal } from '@/contexts'
 import { useHaptics } from '@/hooks/use-haptics'
-import { useIsNativeMobile } from '@/hooks/use-mobile'
 import { usePowerSyncStatus, type PowerSyncConnectionStatus } from '@/hooks/use-powersync-status'
 import { useSyncEnabledToggle } from '@/hooks/use-sync-enabled-toggle'
 import { reconnectSync } from '@/db/powersync/sync-state'
 import { getDownloadUrl } from '@/lib/download-links'
 import { isWebDesktopPlatform, isTauri } from '@/lib/platform'
 import { trackEvent } from '@/lib/posthog'
-import { edgeSpacing, mobileSidebarWidthRatio } from '@/lib/constants'
+import { edgeSpacing, getMobileSidebarWidth, mobileSidebarWidthCss } from '@/lib/constants'
 import { cn } from '@/lib/utils'
 
 const showAppDownloads = import.meta.env.VITE_SHOW_APP_DOWNLOADS === 'true'
@@ -49,7 +49,6 @@ const openLink = (url: string) => window.open(url, '_blank', 'noopener,noreferre
 
 type SidebarFooterProps = {
   className?: string
-  hasContentBelow?: boolean
 }
 
 type AccountMenuItem = {
@@ -151,11 +150,10 @@ export const syncStatusText = (
   return 'Connected'
 }
 
-export const SidebarFooter = ({ className, hasContentBelow = false }: SidebarFooterProps) => {
+export const SidebarFooter = ({ className }: SidebarFooterProps) => {
   const authClient = useAuth()
   const navigate = useNavigate()
   const { isMobile, setOpenMobile, state } = useSidebar()
-  const isNativeMobile = useIsNativeMobile()
   const { openSignInModal } = useSignInModal()
   const [logoutModalOpen, setLogoutModalOpen] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
@@ -287,36 +285,50 @@ export const SidebarFooter = ({ className, hasContentBelow = false }: SidebarFoo
   // and tint the status line as a warning.
   const syncNeedsAttention = syncEnabled && !isConnecting && connectionStatus !== 'connected'
 
+  // Three footer layouts, picked flat: desktop rail circle, mobile
+  // pill + New Chat, desktop expanded pill.
+  const footerControl = (() => {
+    if (isDesktopCollapsed) {
+      return <div className="flex flex-col items-center py-1">{renderAccountControl(true)}</div>
+    }
+    if (isMobile) {
+      return (
+        <div className="flex w-full min-w-0 items-center gap-1">
+          <div className="min-w-0">{renderAccountControl()}</div>
+          <Button type="button" size="lg" onClick={handleNewChat} className="ml-auto rounded-full">
+            <MessageCirclePlus className={iconSize} />
+            <span>New Chat</span>
+          </Button>
+        </div>
+      )
+    }
+    return <div className="min-w-0">{renderAccountControl()}</div>
+  })()
+
+  // Popover layout (placement + width) differs wholesale between mobile
+  // (centered over the sidebar) and desktop (anchored to the pill).
+  const popoverLayout = isMobile
+    ? {
+        sideOffset: 8,
+        align: 'center' as const,
+        collisionPadding: edgeSpacing.mobile,
+        width: `calc(${mobileSidebarWidthCss} - ${edgeSpacing.mobile * 2}px)`,
+      }
+    : { sideOffset: 5, align: 'start' as const, collisionPadding: 4, width: '17rem' }
+
   return (
     <Popover open={menuOpen} onOpenChange={handleMenuOpenChange} modal={isMobile}>
       <ShadcnSidebarFooter
         className={cn(
-          '!gap-0 bg-transparent',
-          hasContentBelow && 'shadow-[0_-8px_16px_-14px_rgba(0,0,0,0.35)]',
+          'relative !gap-0 bg-transparent',
+          isMobile && 'z-10 pb-[var(--mobile-sidebar-footer-inset)]',
           isDesktopCollapsed && '!p-0',
-          isNativeMobile && '!pb-0',
           className,
         )}
       >
-        {isDesktopCollapsed ? (
-          <div className="flex flex-col items-center py-1">{renderAccountControl(true)}</div>
-        ) : isMobile ? (
-          <div className="flex w-full min-w-0 items-center gap-1">
-            <div className="min-w-0">{renderAccountControl()}</div>
-            <button
-              type="button"
-              aria-label="New Chat"
-              title="New Chat"
-              onClick={handleNewChat}
-              className="ml-auto flex h-[var(--touch-height-lg)] shrink-0 cursor-pointer items-center justify-center gap-2 rounded-full bg-brand px-4 text-brand-foreground shadow-sm [background-image:var(--gradient-brand)] transition-[filter] hover:brightness-[1.06] active:brightness-95"
-            >
-              <MessageCirclePlus className={iconSize} />
-              <span>New Chat</span>
-            </button>
-          </div>
-        ) : (
-          <div className="min-w-0">{renderAccountControl()}</div>
-        )}
+        {isMobile && <MobileSidebarScrim data-slot="mobile-sidebar-footer-scrim" edge="bottom" />}
+        {/* z-10 lifts the controls above the mobile footer scrim. */}
+        <div className="relative z-10">{footerControl}</div>
         <LogoutModal open={logoutModalOpen} onOpenChange={setLogoutModalOpen} />
         <SyncSetupModal open={syncSetupOpen} onOpenChange={setSyncSetupOpen} onComplete={handleSyncSetupComplete} />
       </ShadcnSidebarFooter>
@@ -332,15 +344,13 @@ export const SidebarFooter = ({ className, hasContentBelow = false }: SidebarFoo
 
       <PopoverContent
         side="top"
-        sideOffset={isMobile ? 8 : 5}
-        align={isMobile ? 'center' : 'start'}
-        collisionPadding={isMobile ? edgeSpacing.mobile : 4}
+        sideOffset={popoverLayout.sideOffset}
+        align={popoverLayout.align}
+        collisionPadding={popoverLayout.collisionPadding}
         className={cn('p-0 rounded-2xl shadow-lg overflow-hidden', isMobile && menuOpen && 'z-50')}
-        style={{
-          width: isMobile ? `calc(${mobileSidebarWidthRatio * 100}vw - ${edgeSpacing.mobile * 2}px)` : '17rem',
-        }}
+        style={{ width: popoverLayout.width }}
         onPointerDownOutside={(e) => {
-          if (isMobile && e.detail.originalEvent.clientX > window.innerWidth * mobileSidebarWidthRatio) {
+          if (isMobile && e.detail.originalEvent.clientX > getMobileSidebarWidth(window.innerWidth)) {
             setOpenMobile(false)
           }
         }}

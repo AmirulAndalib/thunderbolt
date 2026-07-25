@@ -6,10 +6,10 @@ import { Input } from '@/components/ui/input'
 import { ResponsivePopover } from '@/components/ui/responsive-popover'
 import { edgeSpacing } from '@/lib/constants'
 import { cn } from '@/lib/utils'
-import { ChevronDown, Search } from 'lucide-react'
+import { ChevronDown, Plus, Search } from 'lucide-react'
 import { memo, type ReactNode, useMemo, useState } from 'react'
 import { flushSync } from 'react-dom'
-import type { SearchableMenuGroup, SearchableMenuItem, SearchableMenuProps } from './types'
+import type { SearchableMenuFooterAction, SearchableMenuGroup, SearchableMenuItem, SearchableMenuProps } from './types'
 import { findItemById, flattenItems, isGroupedItems } from './types'
 
 /** Row shell for custom `renderItem` implementations — same geometry as the
@@ -23,8 +23,33 @@ export const searchableMenuRowClass =
 /** Footer action row (e.g. "Add Model"). Same geometry as the menus' item
  *  rows (see `searchableMenuRowClass`) so its rounded hover fill lines up with
  *  the rows above, rather than sitting smaller inside extra padding. */
-export const searchableMenuFooterActionClass =
+const footerActionClass =
   'flex w-full cursor-pointer items-center justify-start gap-2 rounded-lg px-3 h-[var(--touch-height-sm)] max-md:h-[var(--touch-height-default)] text-[length:var(--font-size-body)] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground'
+
+type FooterActionRowProps = SearchableMenuFooterAction & {
+  closeMenu: () => void
+}
+
+/** Renders `footerAction`. Close-before-action ordering is an invariant —
+ *  see `SearchableMenuFooterAction` in `./types` for the rationale. */
+const FooterActionRow = ({
+  label,
+  onAction,
+  closeMenu,
+  icon = <Plus className="size-[var(--icon-size-default)]" />,
+}: FooterActionRowProps) => (
+  <button
+    type="button"
+    onClick={() => {
+      closeMenu()
+      onAction()
+    }}
+    className={footerActionClass}
+  >
+    {icon}
+    {label}
+  </button>
+)
 
 type ItemButtonProps<T> = {
   item: SearchableMenuItem<T>
@@ -133,7 +158,7 @@ export const SearchableMenu = <T,>({
   mobileSide = 'bottom',
   trigger,
   renderItem,
-  footer,
+  footerAction,
   width = 320,
   open: controlledOpen,
   onOpenChange: controlledOnOpenChange,
@@ -183,10 +208,14 @@ export const SearchableMenu = <T,>({
     return items.filter(matchesQuery)
   }, [items, searchQuery])
 
-  const handleSelect = (id: string, item: SearchableMenuItem<T>) => {
+  const closeMenu = () => {
     flushSync(() => {
       setOpen(false)
     })
+  }
+
+  const handleSelect = (id: string, item: SearchableMenuItem<T>) => {
+    closeMenu()
     onValueChange(id, item)
   }
 
@@ -257,7 +286,11 @@ export const SearchableMenu = <T,>({
         </div>
       </div>
 
-      {footer && <div className="border-t p-1 dark:border-border/50">{footer}</div>}
+      {footerAction && (
+        <div className="border-t p-1 dark:border-border/50">
+          <FooterActionRow {...footerAction} closeMenu={closeMenu} />
+        </div>
+      )}
     </div>
   )
 

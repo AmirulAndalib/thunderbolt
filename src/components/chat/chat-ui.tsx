@@ -98,9 +98,11 @@ export default function ChatUI() {
                 className="h-full overflow-y-auto hide-scrollbar"
               >
                 {/* Scroll captures the full width; the content stays centered.
-                    Top padding clears the floating header (the layout's scrim
-                    keeps scrolled messages legible behind it). */}
-                <div className="mx-auto w-full min-w-[300px] max-w-[728px] space-y-4 px-3 pt-[calc(var(--header-inset)+1rem)] pb-0 md:px-4">
+                    Top padding clears the floating header (--header-inset)
+                    plus 1.5rem of breathing room so the first message doesn't
+                    sit flush against the header's scrim (which keeps scrolled
+                    messages legible behind it). */}
+                <div className="mx-auto w-full min-w-[300px] max-w-[728px] space-y-4 px-3 pt-[calc(var(--header-inset)+1.5rem)] pb-0 md:px-4">
                   <Suspense fallback={null}>
                     <ChatMessageList scrollTargetRef={scrollTargetRef} />
                   </Suspense>
@@ -115,7 +117,7 @@ export default function ChatUI() {
           ) : isMobile ? (
             <m.div
               key="logo"
-              className="flex-1 flex items-center justify-center"
+              className="flex flex-1 flex-col items-center justify-center gap-4 text-center"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               // Fast exit: with `mode="wait"` the logo's fade-out gates the
@@ -123,7 +125,8 @@ export default function ChatUI() {
               // hold the just-sent message invisible for that long.
               exit={{ opacity: 0, transition: { duration: 0.15 } }}
             >
-              <AppLogo size={88} className="opacity-60" />
+              <AppLogo size={72} className="opacity-60" />
+              <span className="font-heading text-2xl font-medium text-muted-foreground">{getGreeting()}</span>
             </m.div>
           ) : null}
         </AnimatePresence>

@@ -57,6 +57,29 @@ describe('SearchableMenu', () => {
       const disabledButton = screen.getByText('Option 3').closest('button')
       expect(disabledButton).toBeDisabled()
     })
+
+    it('closes before running a footer action', () => {
+      const expandedStates: Array<string | null> = []
+      render(
+        <SearchableMenu
+          items={mockFlatItems}
+          onValueChange={() => {}}
+          footerAction={{
+            label: 'Add option',
+            onAction: () => {
+              expandedStates.push(screen.getByRole('button', { name: /select/i }).getAttribute('aria-expanded'))
+            },
+          }}
+        />,
+      )
+
+      const trigger = screen.getByRole('button', { name: /select/i })
+      fireEvent.click(trigger)
+      fireEvent.click(screen.getByRole('button', { name: 'Add option' }))
+
+      expect(expandedStates).toEqual(['false'])
+      expect(trigger).toHaveAttribute('aria-expanded', 'false')
+    })
   })
 
   describe('mobile', () => {

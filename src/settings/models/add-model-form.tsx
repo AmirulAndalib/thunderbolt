@@ -4,7 +4,6 @@
 
 import { Loader2, X } from 'lucide-react'
 import type { UseFormReturn } from 'react-hook-form'
-import { z } from 'zod'
 
 import { Button } from '@/components/ui/button'
 import { Combobox, type ComboboxItem } from '@/components/ui/combobox'
@@ -17,35 +16,13 @@ import { StatusCard } from '@/components/ui/status-card'
 import { useAutofocusOnMount } from '@/hooks/use-autofocus-on-mount'
 import type { Model } from '@/types'
 import { ConnectionTestSection } from './connection-test-section'
-import { catalogRequiresApiKey, providerAutoFetchesCatalog, shouldDisableAddModel } from './model-policy'
+import { providerAutoFetchesCatalog, shouldDisableAddModel } from './model-policy'
 import { providerLabels } from './model-presentation'
+import type { AddModelFormValues } from './use-add-model-form'
 
 /** Provider picker options, derived from the exhaustive labels Record so a new
  *  provider added to `Model['provider']` shows up here by construction. */
 const providerOptions = Object.keys(providerLabels) as Model['provider'][]
-
-export const addModelFormSchema = z
-  .object({
-    provider: z.enum(['thunderbolt', 'anthropic', 'openai', 'custom', 'openrouter', 'tinfoil']),
-    name: z.string().min(1, { message: 'Name is required.' }),
-    model: z.string().min(1, { message: 'Model name is required.' }),
-    customModel: z.string().optional(),
-    url: z.string().optional(),
-    apiKey: z.string().optional(),
-  })
-  .refine((data) => data.provider !== 'custom' || Boolean(data.url), {
-    message: 'URL is required for Custom providers',
-    path: ['url'],
-  })
-  .refine(
-    (data) =>
-      data.provider === 'thunderbolt' ||
-      data.provider === 'custom' ||
-      (data.apiKey !== undefined && data.apiKey.length > 0),
-    { message: 'API Key is required for this provider', path: ['apiKey'] },
-  )
-
-export type AddModelFormValues = z.infer<typeof addModelFormSchema>
 
 type AddModelFormProps = {
   form: UseFormReturn<AddModelFormValues>
@@ -63,7 +40,6 @@ type AddModelFormProps = {
   onCancel: () => void
   onProviderChange: (provider: Model['provider']) => void
   onCatalogInvalidated: () => void
-  onRefreshCatalog: () => void
   onSelectModel: (id: string) => void
   onTestConnection: () => void
 }
@@ -85,7 +61,6 @@ export const AddModelForm = ({
   onCancel,
   onProviderChange,
   onCatalogInvalidated,
-  onRefreshCatalog,
   onSelectModel,
   onTestConnection,
 }: AddModelFormProps) => {
@@ -114,7 +89,6 @@ export const AddModelForm = ({
               <FormControl>
                 <Select
                   onValueChange={(value: Model['provider']) => {
-                    field.onChange(value)
                     onProviderChange(value)
                   }}
                   value={field.value}
@@ -191,14 +165,6 @@ export const AddModelForm = ({
             )}
           />
         )}
-        <Button
-          type="button"
-          variant="outline"
-          disabled={isLoadingCatalog || (catalogRequiresApiKey(provider) && !apiKey) || (provider === 'custom' && !url)}
-          onClick={onRefreshCatalog}
-        >
-          {isLoadingCatalog ? 'Refreshing models…' : 'Refresh model catalog'}
-        </Button>
         {showModelSelection && (
           <FormField
             control={form.control}
@@ -211,8 +177,8 @@ export const AddModelForm = ({
                     items={modelItems}
                     value={selectedModelId || undefined}
                     onValueChange={onSelectModel}
-                    placeholder="Select model..."
-                    searchPlaceholder="Search models..."
+                    placeholder="Select model…"
+                    searchPlaceholder="Search models…"
                     emptyMessage="No models found."
                     loading={isLoadingCatalog}
                   />
@@ -287,6 +253,8 @@ export const AddModelForm = ({
           <ResponsiveModalCancel onClick={onCancel} />
           <Button
             type="submit"
+            isLoading={isPending}
+            loadingLabel="Adding…"
             disabled={shouldDisableAddModel({
               isPending,
               isFormValid: form.formState.isValid,
@@ -294,7 +262,7 @@ export const AddModelForm = ({
               connectionStatus,
             })}
           >
-            {isPending ? 'Adding…' : 'Add Model'}
+            Add Model
           </Button>
         </FormFooter>
       </form>

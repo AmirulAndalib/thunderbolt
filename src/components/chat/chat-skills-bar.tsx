@@ -4,9 +4,10 @@
 
 import { Plus } from 'lucide-react'
 import { lazy, Suspense, useEffect, useReducer } from 'react'
-import { createPortal } from 'react-dom'
+import { createPortal, flushSync } from 'react-dom'
 import { useNavigate } from 'react-router'
 
+import { useCreateItem } from '@/components/create-item/context'
 import { Button } from '@/components/ui/button'
 import { MobileBlurBackdrop } from '@/components/ui/mobile-blur-backdrop'
 import { ResponsivePopover } from '@/components/ui/responsive-popover'
@@ -105,6 +106,7 @@ export const ChatSkillsBar = ({
   const { isMobile } = useIsMobile()
   const trackSkillEvent = useSkillTelemetry()
   const navigate = useNavigate()
+  const { openCreateItem } = useCreateItem()
 
   const [{ reorderMode, addOpen, addQuery, actionError }, dispatch] = useReducer(barReducer, initialBarState)
 
@@ -190,7 +192,7 @@ export const ChatSkillsBar = ({
       disabled={addDisabled}
       className={cn(chipSurfaceClass, 'disabled:cursor-not-allowed disabled:opacity-40')}
     >
-      <Plus />
+      <Plus className="size-[var(--icon-size-default)]" />
     </Button>
   )
 
@@ -243,8 +245,12 @@ export const ChatSkillsBar = ({
         <button
           type="button"
           onClick={() => {
-            setAddOpen(false)
-            void navigate('/settings/skills', { state: { createSkill: '' } })
+            // Close the menu synchronously before opening the create surface
+            // so the two never race — same invariant SearchableMenu's
+            // footerAction enforces (this menu is a bespoke ResponsivePopover
+            // row, so it can't reuse that component).
+            flushSync(() => setAddOpen(false))
+            openCreateItem({ kind: 'skill' })
           }}
           className="flex w-full cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[length:var(--font-size-body)] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
         >

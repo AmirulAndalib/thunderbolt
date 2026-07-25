@@ -3,24 +3,20 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 import { useState } from 'react'
-import { v7 as uuidv7 } from 'uuid'
 
 import { testAcpConnection } from '@/acp'
-import { irohClientNodeId } from '@/acp/iroh/iroh-transport'
 import { selectAllowCustomAgents, useConfigStore } from '@/api/config-store'
 import { useChatStore } from '@/chats/chat-store'
-import { DetailPanel, DetailPanelSurface } from '@/components/detail-panel'
-import { AddCustomAgentForm, type AddCustomAgentPayload } from '@/components/settings/agents/add-custom-agent-form'
+import { DetailPanelSurface } from '@/components/detail-panel'
 import { AgentDetail } from '@/components/settings/agents/agent-detail'
 import { AgentList } from '@/components/settings/agents/agent-list'
+import { CreateAgentDetailPanel } from '@/components/settings/agents/create-agent-detail-panel'
 import { ThunderboltCliDetail, ThunderboltCliRow } from '@/components/settings/agents/thunderbolt-cli'
 import { SettingsListPane } from '@/components/settings/settings-list'
 import { PageCreateAction } from '@/components/ui/page-create-action'
 import { PageHeader } from '@/components/ui/page-header'
-import { useAuth, useDatabase, useHttpClient } from '@/contexts'
-import { createAgent, deleteAgent, updateAgent, useAllAgents } from '@/dal'
-import { useConsumeNavState } from '@/hooks/use-consume-nav-state'
-import { fireAndForgetSelfEnrollment, selfEnrollIrohNodeId } from '@/lib/iroh-enrollment'
+import { useAuth, useDatabase } from '@/contexts'
+import { deleteAgent, updateAgent, useAllAgents } from '@/dal'
 
 type AgentsSettingsPageProps = {
   /** Test/DI override for reading this app's iroh NodeId. Forwarded to the add
@@ -44,11 +40,9 @@ const AgentsSettingsPage = ({ loadAppNodeId, enrollIroh }: AgentsSettingsPagePro
   const db = useDatabase()
   const agents = useAllAgents()
   const authClient = useAuth()
-  const httpClient = useHttpClient()
   const { data: session } = authClient.useSession()
   const currentUserId = session?.user?.id ?? null
   const allowCustomAgents = useConfigStore((state) => selectAllowCustomAgents(state.config))
-  const runEnroll = enrollIroh ?? (() => selfEnrollIrohNodeId(httpClient, loadAppNodeId ?? irohClientNodeId))
 
   // The add form, the CLI install card, and the agent rows all share the one
   // slide-in panel slot, so the selection is a single union — the panels are
@@ -59,10 +53,6 @@ const AgentsSettingsPage = ({ loadAppNodeId, enrollIroh }: AgentsSettingsPagePro
   >(null)
   const cliOpen = activePanel?.kind === 'cli'
   const addOpen = activePanel?.kind === 'add'
-
-  // Deep link from the chat header's agent selector ("Add agent"): open the
-  // Add Custom Agent panel directly instead of landing on the bare list.
-  useConsumeNavState('createAgent', () => setActivePanel({ kind: 'add' }))
 
   // Deriving from the live list means the panel follows sync: if the active
   // agent is deleted on another device, `activeAgent` turns undefined and the
@@ -76,41 +66,9 @@ const AgentsSettingsPage = ({ loadAppNodeId, enrollIroh }: AgentsSettingsPagePro
     setActivePanel((current) => (current?.kind === 'agent' && current.id === id ? null : { kind: 'agent', id }))
   const toggleCliPanel = () => setActivePanel((current) => (current?.kind === 'cli' ? null : { kind: 'cli' }))
 
-  const handleAdd = async (payload: AddCustomAgentPayload) => {
-    if (!currentUserId) {
-      // No session yet (auth still pending) — the "+" trigger is disabled in
-      // that state, but the guard keeps the write safe.
-      return
-    }
-    await createAgent(db, {
-      id: uuidv7(),
-      name: payload.name,
-      type: 'remote-acp',
-      transport: payload.transport,
-      url: payload.url,
-      description: payload.description,
-      enabled: 1,
-      userId: currentUserId,
-    })
-    if (payload.transport !== 'iroh') {
-      return
-    }
-    // App enrolls its own dialer NodeId; bridge registers itself server-side.
-    fireAndForgetSelfEnrollment(runEnroll)
-  }
-
   const renderPanel = () => {
     if (addOpen) {
-      return (
-        <DetailPanel title="Add Custom Agent" onClose={closePanel}>
-          <AddCustomAgentForm
-            onClose={closePanel}
-            onSubmit={handleAdd}
-            testAcpConnection={testAcpConnection}
-            loadAppNodeId={loadAppNodeId}
-          />
-        </DetailPanel>
-      )
+      return <CreateAgentDetailPanel onClose={closePanel} loadAppNodeId={loadAppNodeId} enrollIroh={enrollIroh} />
     }
     if (activeAgent) {
       return (

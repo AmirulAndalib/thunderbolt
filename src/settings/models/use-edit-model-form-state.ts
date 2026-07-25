@@ -10,6 +10,7 @@ import { z } from 'zod'
 import type { ComboboxItem } from '@/components/ui/combobox'
 import { useModelConnectionTest } from '@/hooks/use-model-connection-test'
 import type { Model } from '@/types'
+import { canFetchCatalog, type CatalogRequest } from './model-catalog'
 import {
   apiKeyEditValue,
   hasModelConnectionChanges,
@@ -17,7 +18,7 @@ import {
   providerRequiresConnectionTest,
   type ApiKeyEdit,
 } from './model-policy'
-import { catalogToComboboxItems, customModelItem, useModelCatalog } from './use-model-catalog'
+import { catalogToComboboxItems, customModelItem, useAutoCatalogFetch, useModelCatalog } from './use-model-catalog'
 
 const editModelFormSchema = z.object({
   name: z.string().min(1, { message: 'Name is required.' }),
@@ -51,12 +52,24 @@ export const useEditModelFormState = (model: Model) => {
   const [isCustomModel, setIsCustomModel] = useState(false)
   const [apiKeyEdit, setApiKeyEdit] = useState<ApiKeyEdit>({ kind: 'keep' })
   const catalog = useModelCatalog()
+  const { fetchCatalog } = catalog
   // `apiKeyEdit` records the *kind* of edit, but a replacement token keeps
   // changing in the form field after the kind was set — substitute the live
   // watched value so probes and catalog refreshes use the latest keystroke.
   const liveApiKeyEdit: ApiKeyEdit =
     apiKeyEdit.kind === 'replace' ? { kind: 'replace', value: watchedApiKey ?? '' } : apiKeyEdit
   const effectiveApiKey = modelApiKeyForConnection(model.apiKey, liveApiKeyEdit)
+  const catalogRequest = useMemo<CatalogRequest>(
+    () => ({ provider: model.provider, apiKey: effectiveApiKey, url: watchedUrl }),
+    [effectiveApiKey, model.provider, watchedUrl],
+  )
+  // The stored key must never leave the device without an explicit user
+  // action, so the auto-fetch only arms for a freshly typed replacement key,
+  // or for URL edits when no stored secret could ride along. Stored-key
+  // catalogs load on demand when the model dropdown is opened (loadCatalog).
+  const isAutoFetchArmed = apiKeyEdit.kind === 'replace' || (!model.apiKey && watchedUrl !== (model.url ?? ''))
+
+  useAutoCatalogFetch({ armed: isAutoFetchArmed, request: catalogRequest, catalog })
   const modelItems = useMemo((): ComboboxItem[] => {
     const items = catalogToComboboxItems(catalog.models)
     if (!catalog.models.some((available) => available.id === model.model)) {
@@ -77,6 +90,16 @@ export const useEditModelFormState = (model: Model) => {
   })
   const needsSuccessfulTest =
     hasConnectionEdits && apiKeyEdit.kind !== 'clear' && providerRequiresConnectionTest(model.provider)
+
+  // Opening the model dropdown is the explicit user action that authorizes
+  // fetching the provider catalog with the saved connection (including a
+  // stored API key) — opening the edit panel alone must not send anything.
+  const loadCatalog = () => {
+    if (catalog.isLoading || catalog.models.length > 0 || !canFetchCatalog(catalogRequest)) {
+      return
+    }
+    void fetchCatalog(catalogRequest)
+  }
 
   const selectModel = (id: string) => {
     if (id === 'custom') {
@@ -128,8 +151,7 @@ export const useEditModelFormState = (model: Model) => {
     isSaveDisabled:
       (!form.formState.isDirty && apiKeyEdit.kind === 'keep') ||
       (needsSuccessfulTest && connection.status !== 'success'),
-    refreshCatalog: () =>
-      void catalog.fetchCatalog({ provider: model.provider, apiKey: effectiveApiKey, url: watchedUrl }),
+    loadCatalog,
     selectModel,
     changeUrl,
     changeApiKey,

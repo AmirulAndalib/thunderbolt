@@ -91,6 +91,12 @@
      The same pair serves dark mode (see .dark below). */
   --color-brand: #c12d6c;
   --color-brand-2: #ab5e17;
+  /* Muted pair: the brand stops desaturated ~10% at equal lightness — a
+     quieter gradient for persistent "on" states (the Switch checked track)
+     that shouldn't compete with primary action buttons. Re-derive from the
+     brand pair if it changes. */
+  --color-brand-muted: #bd3778;
+  --color-brand-2-muted: #ad681f;
   --color-brand-foreground: #faf8f5;
   --color-destructive: #ff5f5f;
   --color-destructive-foreground: #262120;
@@ -157,15 +163,29 @@
   --elevation-medium: rgb(0 0 0 / 0.06);
   --elevation-strong: rgb(0 0 0 / 0.15);
 
+  /* Directional sheet/edge elevation — one recipe (8px offset toward the
+     layer below, 32px blur, -12px spread, 20% black) cast three ways. Single
+     source for the drawer sheets (drawer.tsx) and .mobile-sidebar-main-shadow
+     below; the -drawer names match the sheet's swipe-direction attribute. */
+  --shadow-drawer-down: 0 -8px 32px -12px rgb(0 0 0 / 20%);
+  --shadow-drawer-up: 0 8px 32px -12px rgb(0 0 0 / 20%);
+  --shadow-sidebar-edge: -8px 0 32px -12px rgb(0 0 0 / 20%);
+
+  /* Floor width of the create-item detail panel — the clamp() minimum in
+     DetailPanelSurface (detail-panel.tsx). Together with the 360px content
+     floor (ResizablePanel minSize in main-layout.tsx) it derives the 840px
+     create-item-layout container breakpoint below (480 + 360 = 840), which
+     must stay a literal because container queries can't read var(). */
+  --create-panel-min-width: 480px;
+
   /* Brand gradient — the logo's gold→magenta families as an amber→raspberry
      sweep. References the theme tokens, so the .dark overrides above flow
-     through automatically. Applied via
-     [background-image:var(--gradient-brand)] on "on" surfaces (switch ON
-     track); single-color call sites keep the solid --color-brand. Amber leads
-     (left) because the switch thumb parks on the RIGHT when checked — with
-     raspberry first, the thumb hid the amber end and the track read as plain
-     red. */
+     through automatically. Single-color call sites keep the solid
+     --color-brand. Amber leads (left) because the switch thumb parks on the
+     RIGHT when checked — with raspberry first, the thumb hid the amber end
+     and the track read as plain red. */
   --gradient-brand: linear-gradient(90deg, var(--color-brand-2), var(--color-brand));
+  --gradient-brand-muted: linear-gradient(90deg, var(--color-brand-2-muted), var(--color-brand-muted));
 }
 
 .dark {
@@ -349,6 +369,10 @@
      filled control here. */
   --color-brand: #c12d6c;
   --color-brand-2: #ab5e17;
+  /* Muted pair: same derivation as the :root block — desaturated ~10% at
+     equal lightness for the Switch checked track. */
+  --color-brand-muted: #bd3778;
+  --color-brand-2-muted: #ad681f;
   --color-brand-foreground: #faf8f5;
   --color-destructive: #ff5f5f;
   --color-destructive-foreground: #252220;
@@ -485,6 +509,27 @@
   background-color: #282a2b;
 }
 
+/* The quick-create panel pushes the current route while both surfaces fit.
+   Below the panel's 480px floor + the content's 360px floor, take the panel
+   out of flex flow so it slides over the unchanged route instead. A container
+   query accounts for expanded, collapsed, and user-resized sidebars alike.
+   The 840px below is --create-panel-min-width (480px, :root above — consumed
+   by DetailPanelSurface's width clamp in detail-panel.tsx) + the 360px
+   ResizablePanel minSize (main-layout.tsx). Container queries can't read
+   var(), so if either floor changes, re-derive this literal. */
+[data-slot='create-item-layout'] {
+  container-name: create-item-layout;
+  container-type: inline-size;
+}
+
+@container create-item-layout (width < 840px) {
+  [data-slot='create-item-layout'] > [data-slot='slide-in-panel'] {
+    position: absolute;
+    inset-block: 0;
+    inset-inline-end: 0;
+  }
+}
+
 @keyframes accordion-down {
   from {
     height: 0;
@@ -563,6 +608,14 @@
     background-color: var(--color-background);
     color: var(--color-foreground);
   }
+  /* A sustained press is an app gesture on these surfaces, so suppress the
+     browser's competing text selection and iOS callout UI. */
+  [data-slot='context-menu-trigger'],
+  [data-long-press] {
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
 }
 
 /* Global scrollbar hiding for consistent cross-platform appearance */
@@ -587,6 +640,45 @@ body {
   overflow: hidden;
   display: flex;
   height: 100svh;
+}
+
+/* Cast only toward the stationary menu so the moving app surface reads as
+   the layer above it in both themes. Same elevation recipe as the drawer
+   sheets — see the --shadow-drawer-down/up and --shadow-sidebar-edge tokens
+   in :root. */
+.mobile-sidebar-main-shadow {
+  box-shadow: var(--shadow-sidebar-edge);
+}
+
+/* The foreground owns mobile navigation motion, so Base UI's popup stays
+   anchored behind it instead of applying the drawer's default translation.
+   The !important is unavoidable: Base UI sets the transform as an inline
+   style with no prop to disable it. Timing matches `drawerTransition` in
+   mobile-sidebar.tsx — the popup fade and the foreground slide are one
+   animation; keep the two in sync. */
+.mobile-sidebar-popup {
+  opacity: 1;
+  transform: none !important;
+  transition: opacity 300ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* 0.8, not 0: the menu only dims while covered — a subtle parallax fade so it
+   never appears to blink out behind the sliding foreground. */
+.mobile-sidebar-popup[data-starting-style],
+.mobile-sidebar-popup[data-ending-style] {
+  opacity: 0.8;
+}
+
+.mobile-sidebar-popup[data-swiping] {
+  /* transform already neutralized by the base rule above. */
+  opacity: 1;
+  transition-duration: 0ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mobile-sidebar-popup {
+    transition-duration: 0ms;
+  }
 }
 
 @media (max-width: 768px) {

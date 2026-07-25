@@ -4,7 +4,6 @@
 
 import {
   SearchableMenu,
-  searchableMenuFooterActionClass,
   searchableMenuRowClass,
   type SearchableMenuGroup,
   type SearchableMenuItem,
@@ -17,7 +16,7 @@ import { cn } from '@/lib/utils'
 import { needsApiKey } from '@/settings/models/model-policy'
 import type { ChatThread } from '@/layout/sidebar/types'
 import type { Model } from '@/types'
-import { AlertTriangle, ChevronDown, Plus } from 'lucide-react'
+import { AlertTriangle, ChevronDown } from 'lucide-react'
 import { useCallback, useMemo } from 'react'
 
 export type ModelSelectorProps = {
@@ -161,7 +160,7 @@ export const ModelSelector = ({
           item.disabled && 'opacity-50 cursor-not-allowed',
         )}
       >
-        <span className="font-medium truncate">{item.label}</span>
+        <span className="truncate font-normal">{item.label}</span>
         {/* ml-auto pushes the trailing indicator (missing-key warning or the
             confidential "Private" badge) to the row's right edge. */}
         {showMissingKeyHint ? (
@@ -186,12 +185,7 @@ export const ModelSelector = ({
     return content
   }
 
-  const footer = onAddModels ? (
-    <button type="button" onClick={onAddModels} className={searchableMenuFooterActionClass}>
-      <Plus className="size-4" />
-      Add Model
-    </button>
-  ) : undefined
+  const footerAction = onAddModels ? { label: 'Add Model', onAction: onAddModels } : undefined
 
   const { triggerSelection } = useHaptics()
   const handleModelChange = useCallback(
@@ -214,7 +208,7 @@ export const ModelSelector = ({
       mobileSide="bottom"
       trigger={renderTrigger}
       renderItem={renderItem}
-      footer={footer}
+      footerAction={footerAction}
       contentClassName="max-md:bg-sidebar"
       width={240}
       maxHeight={340}

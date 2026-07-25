@@ -24,6 +24,16 @@ export type SearchableMenuGroup<T = unknown> = {
   items: SearchableMenuItem<T>[]
 }
 
+/** Declarative footer action row ("Add Model", "Add Agent"). The menu renders
+ *  the row itself and closes synchronously before running the action, so a
+ *  surface the action opens (e.g. the quick-create panel) never races the
+ *  closing menu. */
+export type SearchableMenuFooterAction = {
+  label: string
+  onAction: () => void
+  icon?: ReactNode
+}
+
 export type SearchableMenuProps<T = unknown> = {
   /** Items to display - can be flat or grouped */
   items: SearchableMenuItem<T>[] | SearchableMenuGroup<T>[]
@@ -45,8 +55,8 @@ export type SearchableMenuProps<T = unknown> = {
   trigger?: ReactNode | ((selected: SearchableMenuItem<T> | undefined, isOpen: boolean) => ReactNode)
   /** Custom item renderer */
   renderItem?: (item: SearchableMenuItem<T>, isSelected: boolean) => ReactNode
-  /** Footer content (e.g., "Add Models" button) */
-  footer?: ReactNode
+  /** Footer action row; the menu owns its rendering and close-first behavior. */
+  footerAction?: SearchableMenuFooterAction
   /** Popover width */
   width?: string | number
   /** Controlled open state */
