@@ -7,6 +7,7 @@ import { XIcon } from 'lucide-react'
 import { type ComponentProps } from 'react'
 
 import { HapticMountBoundary } from '@/hooks/use-haptics'
+import { withCollapsedAutoFocusSelection } from '@/lib/focus'
 import { cn } from '@/lib/utils'
 import { modalCloseClass, modalOverlayClass } from './modal-styles'
 
@@ -41,6 +42,7 @@ const SheetContent = ({
   side = 'right',
   overlayClassName,
   hideCloseButton = false,
+  onOpenAutoFocus,
   ...props
 }: ComponentProps<typeof SheetPrimitive.Content> & {
   side?: 'top' | 'right' | 'bottom' | 'left'
@@ -64,6 +66,7 @@ const SheetContent = ({
             'data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom inset-x-0 bottom-0 h-auto border-t',
           className,
         )}
+        onOpenAutoFocus={withCollapsedAutoFocusSelection(onOpenAutoFocus)}
         {...props}
       >
         {children}
