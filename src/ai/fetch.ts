@@ -14,7 +14,9 @@ import {
 } from '@/ai/step-logic'
 import { getAllSkills, getIntegrationStatus, getModel, getModelProfile, getSettings } from '@/dal'
 import { getMessage } from '@/dal/chat-messages'
+import { isWidgetSkillId } from '@/defaults/skills'
 import { extractLastUserText, resolveSkillTokenInstructions } from '@/skills/resolve-skill-system-messages'
+import { createSkillTool, selectEnabledSkillDefinitions } from '@/skills/skill-tool'
 import { collectAskEntriesFromCache, formatAskResponsesNote } from '@/widgets/ask/lib'
 import { getDb } from '@/db/database'
 import { getLocalSetting } from '@/stores/local-settings-store'
@@ -27,7 +29,7 @@ import { isLoopbackHost } from '@/lib/mcp-url-validation'
 import { normalizeOpenAiBaseUrl } from '@/lib/openai-base-url'
 import type { FetchFn } from '@/lib/proxy-fetch'
 import { createToolset, getAvailableTools, type ToolCallCache } from '@/lib/tools'
-import type { Model, ModelProfile, ThunderboltUIMessage, UIMessageMetadata } from '@/types'
+import type { Model, ModelProfile, Skill, ThunderboltUIMessage, UIMessageMetadata } from '@/types'
 import type { SourceMetadata } from '@/types/source'
 import { createAnthropic } from '@ai-sdk/anthropic'
 import { createOpenAI } from '@ai-sdk/openai'
@@ -60,6 +62,7 @@ import {
 import type { MCPClient, NamedMCPClient } from '@/lib/mcp-provider'
 import { isClosedConnectionError } from '@/lib/mcp-errors'
 import { smoothStreamWordDelayMs } from '@/chats/chat-throttle'
+import type { SkillDefinition } from '@shared/agent-core/skills'
 import { detectStreamChunk } from './smooth-chunking'
 import { createMessageMetadata } from './message-metadata'
 
@@ -548,6 +551,7 @@ export type PreparedAiRequestConfig = {
   readonly supportsTools: boolean
   readonly sourceCollector: SourceMetadata[]
   readonly toolset: Record<string, Tool>
+  readonly skills: readonly SkillDefinition[]
   readonly mcpToolsMetadata: UIMessageMetadata['mcpTools']
   readonly stableSystemPrompt: string
   readonly volatileSystemPrompt: string
@@ -560,6 +564,27 @@ export type PrepareAiRequestConfigOptions = {
   readonly reconnectClient?: ReconnectClient
   readonly httpClient: HttpClient
 }
+
+/** Register progressive skill loading only for models that support tools. */
+export const addSkillTool = (
+  toolset: Record<string, Tool>,
+  skills: readonly SkillDefinition[],
+  supportsTools: boolean,
+): Record<string, Tool> => {
+  if (supportsTools) {
+    toolset.skill = createSkillTool(skills)
+  }
+  return toolset
+}
+
+/**
+ * Select skills disclosed in the built-in model's system prompt.
+ *
+ * Tool-capable models receive every enabled skill, while non-tool models only
+ * receive widget rendering contracts inline.
+ */
+export const selectPromptSkillDefinitions = (skills: readonly Skill[], supportsTools: boolean): SkillDefinition[] =>
+  selectEnabledSkillDefinitions(supportsTools ? skills : skills.filter(({ id }) => isWidgetSkillId(id)))
 
 /** Load model/profile/settings and build one send's app + MCP tools and prompt. */
 export const prepareAiRequestConfig = async ({
@@ -589,13 +614,15 @@ export const prepareAiRequestConfig = async ({
     throw new Error('Model not found')
   }
   const profile = await getModelProfile(db, modelId)
+  const storedSkills = await getAllSkills(db)
+  const skills = selectEnabledSkillDefinitions(storedSkills)
   const supportsTools = model.toolUsage !== 0
   const sourceCollector: SourceMetadata[] = []
   const toolCallCache: ToolCallCache = new Map()
   const availableTools = supportsTools
     ? await getAvailableTools(httpClient, sourceCollector, { settings, integrationStatus })
     : []
-  const appToolset = createToolset(availableTools, toolCallCache)
+  const appToolset = addSkillTool(createToolset(availableTools, toolCallCache), skills, supportsTools)
   const hasWebTools = 'search' in appToolset && 'fetch_content' in appToolset
   const merged = supportsTools
     ? await mergeMcpTools(appToolset, mcpClients, reconnectClient)
@@ -625,6 +652,8 @@ export const prepareAiRequestConfig = async ({
     integrationStatus: integrationStatuses.length > 0 ? integrationStatuses.join(', ') : 'READY',
     hasWebTools,
     mcpServersSummary: merged.summary,
+    skills: selectPromptSkillDefinitions(storedSkills, supportsTools),
+    supportsTools,
   })
 
   return {
@@ -633,6 +662,7 @@ export const prepareAiRequestConfig = async ({
     supportsTools,
     sourceCollector,
     toolset: merged.toolset,
+    skills,
     mcpToolsMetadata: merged.mcpTools,
     stableSystemPrompt: prompt.stablePrompt,
     volatileSystemPrompt: prompt.volatilePrompt,
@@ -658,7 +688,7 @@ export const aiFetchStreamingResponse = async ({
   // reach this function the user turn is already persisted.
 
   const db = getDb()
-  const { model, profile, supportsTools, sourceCollector, toolset, mcpToolsMetadata, systemPrompt } =
+  const { model, profile, supportsTools, sourceCollector, toolset, skills, mcpToolsMetadata, systemPrompt } =
     await prepareAiRequestConfig({
       modelId,
       mcpClients,
@@ -803,13 +833,7 @@ export const aiFetchStreamingResponse = async ({
     // the context-overflow estimate so the budget and the actual prepend
     // stay in lockstep.
     const lastUserText = extractLastUserText(messages)
-    const allSkills = await getAllSkills(db)
-    const instructionBySlug = new Map<string, string>()
-    for (const skill of allSkills) {
-      if (skill.enabled === 1 && skill.name && skill.instruction) {
-        instructionBySlug.set(skill.name, skill.instruction)
-      }
-    }
+    const instructionBySlug = new Map(skills.map(({ name, instruction }) => [name, instruction]))
     const skillSystemMessages = resolveSkillTokenInstructions(lastUserText, instructionBySlug)
 
     // Preserve the upstream status (and detail) when surfacing an API error to

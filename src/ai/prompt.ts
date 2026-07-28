@@ -4,8 +4,8 @@
 
 import { chatPrompt } from '@/ai/prompts/chat'
 import { webToolsPrompt } from '@/ai/prompts/web-tools'
-import { widgetPrompts } from '@/widgets'
 import type { ModelProfile } from '@/types'
+import { buildFallbackSkillDisclosure, buildSkillListing, type SkillDefinition } from '@shared/agent-core/skills'
 
 /** Parameters to build the system prompt */
 export type PromptParams = {
@@ -26,6 +26,10 @@ export type PromptParams = {
   hasWebTools: boolean
   /** Summary of connected MCP servers (name + tool count) */
   mcpServersSummary?: string
+  /** Enabled skills available to the model */
+  skills?: readonly SkillDefinition[]
+  /** Whether the model can load skill instructions through tools */
+  supportsTools?: boolean
 }
 
 export type PromptParts = {
@@ -45,6 +49,8 @@ export const createPromptParts = (
     integrationStatus,
     hasWebTools,
     mcpServersSummary,
+    skills = [],
+    supportsTools = true,
   }: PromptParams,
   currentDate: Date = new Date(),
 ): PromptParts => {
@@ -75,6 +81,7 @@ export const createPromptParts = (
   ]
     .filter(Boolean)
     .join('\n')
+  const skillDisclosure = supportsTools ? buildSkillListing(skills) : buildFallbackSkillDisclosure(skills)
 
   // Output Format asks models to format math as `$…$` / `$$…$$` only (never
   // `\(…\)` / `\[…\]`). The chat renderer (src/components/chat/memoized-markdown.tsx)
@@ -125,6 +132,7 @@ Don't mention tool names unless asked.
 ${hasWebTools ? `\n${webToolsPrompt}` : ''}
 ${toolsOverride ? `\n${toolsOverride}` : ''}
 ${mcpServersSummary ? `\n## Connected MCP Servers\nYou have tools from these external services (tool names prefixed by server name):\n${mcpServersSummary}\nUse these when the user asks about these services.` : ''}
+${skillDisclosure ? `\n${skillDisclosure}` : ''}
 
 ## Link Previews
 • Aggregate pages (listicles, "Top 10") are for DISCOVERY ONLY
@@ -132,11 +140,10 @@ ${mcpServersSummary ? `\n## Connected MCP Servers\nYou have tools from these ext
 • For products: link to official manufacturer pages
 ${linkPreviewsOverride ? `\n${linkPreviewsOverride}` : ''}
 
-${widgetPrompts}
-
 # Output Format
 Cite sources with [N] INLINE at the end of the sentence, on the SAME LINE — never on a new line or separate paragraph.
 Place each [N] once after the period of the last sentence using that source.
+Do not emit <widget:citation> tags, 【1】 brackets, footnotes, or source lists at the end.
 Correct: "The metro area has 37 million residents. [1] [2]"
 Wrong: "The metro area has 37 million residents.\n[1]" (citation on new line)
 Wrong: "Tokyo has 14 million residents. [1] The metro area has 37 million. [1]" (repeated [1])
