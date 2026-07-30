@@ -3,6 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 import { createPromptParts } from '@/ai/prompt'
+import { createTurnBudget, createTurnBudgetExhaustedError, type TurnBudgetConsumer } from '@/ai/retry-budget'
 import {
   buildStepOverrides,
   extractTextFromMessages,
@@ -24,7 +25,8 @@ import { getLocalSetting } from '@/stores/local-settings-store'
 import { hydrateAttachmentsAsFileParts } from '@/lib/attachments'
 import { hydrateQuotesAsText } from '@/lib/quotes'
 import { isSsoMode } from '@/lib/auth-mode'
-import { getAuthToken, getUserCacheSecret } from '@/lib/auth-token'
+import { getAuthToken } from '@/lib/auth-token'
+import { classifyErrorKind } from '@/lib/error-utils'
 import { fetch as baseFetch } from '@/lib/fetch'
 import { isLoopbackHost } from '@/lib/mcp-url-validation'
 import { normalizeOpenAiBaseUrl } from '@/lib/openai-base-url'
@@ -36,7 +38,6 @@ import { createAnthropic } from '@ai-sdk/anthropic'
 import { createOpenAI } from '@ai-sdk/openai'
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible'
 import type { HttpClient } from '@/lib/http'
-import type { SecureClient } from 'tinfoil'
 import { v7 as uuidv7 } from 'uuid'
 
 // Currently @openrouter/ai-sdk-provider is NOT compatible with Vercel AI SDK v5. If you enable this, you will get the following error:
@@ -66,6 +67,13 @@ import { smoothStreamWordDelayMs } from '@/chats/chat-throttle'
 import type { SkillDefinition } from '@shared/agent-core/skills'
 import { detectStreamChunk } from './smooth-chunking'
 import { createMessageMetadata } from './message-metadata'
+import {
+  evictSystemTinfoilClient,
+  evictUserTinfoilClient,
+  getSystemTinfoilClient,
+  getTinfoilClient,
+  isTinfoilTransportWedgedError,
+} from './tinfoil-client'
 
 /**
  * Sanitizes a server name into a valid tool prefix.
@@ -92,96 +100,6 @@ export const ollama = createOpenAI({
   fetch,
 })
 
-// Cached so attestation runs once per page load. `tinfoil` is dynamically
-// imported to code-split its attestation/crypto deps.
-//
-// system: HPKE body POSTs to <cloudUrl>/tinfoil; backend injects our key.
-// user:   BYOK — direct to the enclave with the user's own key.
-//
-// System cache is keyed by cloudUrl so a dev-tools URL switch hits the new
-// backend on the next call.
-const systemTinfoilClients = new Map<string, Promise<SecureClient>>()
-let userTinfoilClient: SecureClient | null = null
-
-/**
- * Build a fresh system `SecureClient` promise and cache it synchronously
- * (before the dynamic `import('tinfoil')` resolves) so a prewarm and an
- * immediate first send share one client and attest once instead of racing into
- * two attestations. On construction failure we drop the entry so the next call
- * retries the import rather than inheriting a sticky rejection.
- */
-const createSystemTinfoilClient = (cloudUrl: string): Promise<SecureClient> => {
-  const clientPromise = import('tinfoil').then(
-    ({ SecureClient }) => new SecureClient({ baseURL: `${cloudUrl}/tinfoil`, userCacheSecret: getUserCacheSecret() }),
-  )
-  void clientPromise.catch(() => systemTinfoilClients.delete(cloudUrl))
-  systemTinfoilClients.set(cloudUrl, clientPromise)
-  return clientPromise
-}
-
-export const getSystemTinfoilClient = async (): Promise<SecureClient> => {
-  // cloudUrl already ends in /v1 (shared with the OpenAI chat baseURL).
-  const cloudUrl = getLocalSetting('cloudUrl').replace(/\/$/, '')
-  // Reuse the cached construction promise across concurrent callers; `ready()`
-  // is awaited per call below (idempotent once attested).
-  const client = await (systemTinfoilClients.get(cloudUrl) ?? createSystemTinfoilClient(cloudUrl))
-  await client.ready()
-  return client
-}
-
-/**
- * Best-effort warm-up of the Tinfoil system enclave so the first chat send
- * doesn't pay the attestation handshake on the critical path. Fired (fire-and-
- * forget) from the chat-ready path for the built-in agent only — see
- * {@link useHydrateChatStore}; ACP agents route over the wire and never reach
- * {@link createModel}. No-op unless `model` is a Tinfoil *system* model (the
- * only path that attests via {@link getSystemTinfoilClient}); BYO/other
- * providers never attest here.
- *
- * Idempotent: `getSystemTinfoilClient` memoizes per cloudUrl, so repeated warm-
- * ups and a concurrent real send share the same in-flight client. Errors are
- * swallowed ONLY here because this is a speculative cache fill — the real send
- * still surfaces attestation failures loudly through {@link createModel}.
- */
-export const runSystemModelPrewarm = async (model: Pick<Model, 'provider' | 'isSystem'> | null | undefined) => {
-  if (!model || model.provider !== 'tinfoil' || !model.isSystem) {
-    return
-  }
-  try {
-    await getSystemTinfoilClient()
-  } catch (error) {
-    console.warn('runSystemModelPrewarm: warm-up skipped', error)
-  }
-}
-
-/** Drop the cached `SecureClient` so the next send constructs a fresh one with
- *  a new attestation context. Use when a key-config error keeps repeating
- *  inside the SDK's own reset+retry — the cached client's transport is wedged
- *  and only a brand-new instance breaks the cycle. */
-export const evictSystemTinfoilClient = (): void => {
-  const cloudUrl = getLocalSetting('cloudUrl').replace(/\/$/, '')
-  systemTinfoilClients.delete(cloudUrl)
-}
-
-export const getTinfoilClient = async (): Promise<SecureClient> => {
-  if (!userTinfoilClient) {
-    const { SecureClient } = await import('tinfoil')
-    userTinfoilClient = new SecureClient({ userCacheSecret: getUserCacheSecret() })
-  }
-  await userTinfoilClient.ready()
-  return userTinfoilClient
-}
-
-const evictUserTinfoilClient = (): void => {
-  userTinfoilClient = null
-}
-
-/** A KeyConfigMismatchError that survives the SDK's internal reset+retry means
- *  our cached `SecureClient` has a wedged transport. Evict it so the next call
- *  builds a fresh instance with a brand-new attestation context. */
-export const isKeyConfigMismatchError = (err: unknown): boolean =>
-  err instanceof Error && err.name === 'KeyConfigMismatchError'
-
 /** Reconnect a dropped MCP client; returns a fresh client or null. Supplied by
  *  the MCP provider via the chat store. See `src/lib/mcp-provider.tsx`. */
 type ReconnectClient = (client: MCPClient) => Promise<MCPClient | null>
@@ -192,6 +110,7 @@ type AiFetchStreamingResponseOptions = {
   mcpClients?: NamedMCPClient[]
   reconnectClient?: ReconnectClient
   httpClient: HttpClient
+  turnBudget?: TurnBudgetConsumer
   /** Returns the current proxy fetch. Production callers pass the getter from
    *  `ProxyFetchProvider` (`useProxyFetchGetter()`); non-React callers (eval
    *  scripts) build a `proxyFetch` directly and wrap it in `() => fn`. */
@@ -500,7 +419,7 @@ export const createModel = async (modelConfig: Model, getProxyFetch: () => Fetch
             try {
               return await client.fetch(input, upstreamInit)
             } catch (err) {
-              if (isKeyConfigMismatchError(err)) {
+              if (isTinfoilTransportWedgedError(err)) {
                 evictSystemTinfoilClient()
               }
               throw err
@@ -525,7 +444,7 @@ export const createModel = async (modelConfig: Model, getProxyFetch: () => Fetch
           try {
             return await client.fetch(input, init)
           } catch (err) {
-            if (isKeyConfigMismatchError(err)) {
+            if (isTinfoilTransportWedgedError(err)) {
               evictUserTinfoilClient()
             }
             throw err
@@ -671,6 +590,13 @@ export const prepareAiRequestConfig = async ({
   }
 }
 
+/**
+ * Stream one response through the legacy built-in pipeline.
+ *
+ * Adapter callers supply the active turn consumer; direct callers receive a
+ * local budget. Only empty-response attempts after the first consume here
+ * because the routing fetch already consumed the initial request.
+ */
 export const aiFetchStreamingResponse = async ({
   init,
   modelId,
@@ -678,11 +604,13 @@ export const aiFetchStreamingResponse = async ({
   reconnectClient,
   httpClient,
   getProxyFetch,
+  turnBudget,
 }: AiFetchStreamingResponseOptions) => {
   const options = init as RequestInit & { body: string }
   const body = JSON.parse(options.body)
   const abortSignal: AbortSignal | undefined = options.signal ?? undefined
   const { messages } = body as { messages: ThunderboltUIMessage[]; id: string }
+  const requestBudget = turnBudget ?? createTurnBudget().consumer
 
   // The chat instance saves the user message via `saveMessages` before
   // invoking the adapter — see `src/chats/chat-instance.ts`. By the time we
@@ -741,6 +669,9 @@ export const aiFetchStreamingResponse = async ({
      */
     const runStreamText = (inputMessages: Awaited<ReturnType<typeof convertToModelMessages>>) => {
       return streamText({
+        // SDK-internal retries are invisible to the shared per-turn request budget.
+        // Keep retries in the app layers where every request is counted.
+        maxRetries: 0,
         temperature: modelTemperature,
         model: wrappedModel,
         system: systemPrompt,
@@ -849,6 +780,7 @@ export const aiFetchStreamingResponse = async ({
           error: error.responseBody ?? error.message,
           status: error.statusCode,
           isRetryable: error.isRetryable,
+          kind: classifyErrorKind(error),
         })
       }
       // A provider that can't serialize a part throws this client-side, before
@@ -859,9 +791,16 @@ export const aiFetchStreamingResponse = async ({
       // must NOT be tagged 422, or they'd masquerade as a fixable attachment.
       if (UnsupportedFunctionalityError.isInstance(error)) {
         const isFilePart = /file part|media type/i.test(`${error.functionality} ${error.message}`)
-        return JSON.stringify({ error: error.message, status: isFilePart ? 422 : undefined, isRetryable: false })
+        return JSON.stringify({
+          error: error.message,
+          status: isFilePart ? 422 : undefined,
+          isRetryable: false,
+          kind: classifyErrorKind(error),
+        })
       }
-      return error instanceof Error ? error.message : String(error)
+      const message = error instanceof Error ? error.message : String(error)
+      const kind = classifyErrorKind(error)
+      return kind ? JSON.stringify({ error: message, kind }) : message
     }
 
     // Surface the user's persisted ask-widget responses (stored in each
@@ -916,6 +855,12 @@ export const aiFetchStreamingResponse = async ({
         let anyAttemptHadToolCalls = false
 
         while (attemptNumber <= maxAttempts) {
+          if (attemptNumber > 1 && !requestBudget.tryConsumeRequest()) {
+            // Mirror the routing choke point's denial so both layers surface the
+            // same named error instead of ending the turn as a silent finish.
+            throw createTurnBudgetExhaustedError()
+          }
+
           const result = runStreamText(currentMessages)
           const messageMetadata = createMessageMetadata(modelId, sourceCollector, mcpToolsMetadata)
 
@@ -987,7 +932,7 @@ export const aiFetchStreamingResponse = async ({
     console.error('aiFetchStreamingResponse error', error)
     const status =
       (error as { status?: number }).status ?? (error as { response?: { status?: number } }).response?.status
-    return new Response(JSON.stringify({ error: (error as Error).message, status }), {
+    return new Response(JSON.stringify({ error: (error as Error).message, status, kind: classifyErrorKind(error) }), {
       status: status ?? 500,
       headers: { 'Content-Type': 'application/json' },
     })
