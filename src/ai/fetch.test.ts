@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 import { describe, expect, it, mock } from 'bun:test'
-import { createPrompt } from '@/ai/prompt'
+import { assembleBuiltInModelInput, createPrompt } from '@/ai/prompt'
 import { defaultSkillResearch, defaultSkillWeather } from '@/defaults/skills'
 import { fetch as baseFetch } from '@/lib/fetch'
 import type { MCPClient, NamedMCPClient } from '@/lib/mcp-provider'
@@ -14,6 +14,7 @@ import type { Model, Skill } from '@/types'
 import type { Tool } from 'ai'
 import {
   addSkillTool,
+  buildVolatileSystemNotes,
   mergeMcpTools,
   resolveOpenAiCompatConnection,
   sanitizeToolPrefix,
@@ -139,6 +140,43 @@ describe('selectPromptSkillDefinitions', () => {
       'TASK_SKILL_BODY',
       'USER_AUTHORED_SKILL_BODY',
     ])
+  })
+})
+
+describe('buildVolatileSystemNotes', () => {
+  it('wires volatile notes into the front system block', () => {
+    const volatileSystemPrompt = 'Current date/time: Friday, July 10, 2026 at 9:00 AM GMT-3'
+    const currentUserMessage = { role: 'user' as const, content: 'What changed?' }
+
+    const notes = buildVolatileSystemNotes({
+      volatileSystemPrompt,
+      voiceNotes: ['Voice mode is active.'],
+      skillSystemMessages: ['Follow project style.'],
+      askResponsesNote: 'Ask responses: concise',
+    })
+
+    expect(notes[0]).toBe(volatileSystemPrompt)
+    expect(notes).toEqual([
+      volatileSystemPrompt,
+      'Voice mode is active.',
+      'Follow project style.',
+      'Ask responses: concise',
+    ])
+    const input = assembleBuiltInModelInput(
+      'stable prompt',
+      [
+        { role: 'user', content: 'Earlier question' },
+        { role: 'assistant', content: 'Earlier answer' },
+        currentUserMessage,
+      ],
+      notes,
+    )
+
+    const messages = [{ role: 'system' as const, content: input.system }, ...input.messages]
+
+    expect(input.system).toBe(`stable prompt\n\n${notes.join('\n\n')}`)
+    expect(messages.slice(1).every(({ role }) => role !== 'system')).toBeTrue()
+    expect(input.messages.at(-1)).toEqual(currentUserMessage)
   })
 })
 
