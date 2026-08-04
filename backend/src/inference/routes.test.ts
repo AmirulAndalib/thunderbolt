@@ -8,6 +8,7 @@ import { mockAuth, mockAuthUnauthenticated } from '@/test-utils/mock-auth'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, mock } from 'bun:test'
 import { Elysia } from 'elysia'
 import type OpenAI from 'openai'
+import { APIConnectionError, APIConnectionTimeoutError, APIError } from 'openai'
 import { createInferenceRoutes, supportedModels, type InferenceProxyLatencyLog } from './routes'
 import { defaultModels } from '@shared/defaults/models'
 
@@ -79,6 +80,7 @@ describe('Inference Routes', () => {
       mockCreateCompletion.mockClear()
       getInferenceClientMock.mockClear()
       isPostHogConfiguredMock.mockClear()
+      consoleSpies.error.mockClear()
       isPostHogConfiguredMock.mockImplementation(() => false)
       getInferenceClientMock.mockImplementation(() => ({
         client: mockOpenAIClient as unknown as OpenAI,
@@ -245,6 +247,249 @@ describe('Inference Routes', () => {
       expect(response.status).toBe(500)
     })
 
+    it('captures body-free structured metadata from an API error', async () => {
+      const captureInferenceErrorMock = mock(() => {})
+      const captureApp = new Elysia().use(
+        createInferenceRoutes({
+          auth: mockAuth,
+          getClient: getInferenceClientMock,
+          isPostHogConfiguredFn: isPostHogConfiguredMock,
+          captureInferenceErrorFn: captureInferenceErrorMock,
+        }),
+      )
+      const apiError = new APIError(
+        400,
+        {
+          message: 'prompt is too long',
+          code: 'context_length_exceeded',
+          type: 'invalid_request_error',
+        },
+        undefined,
+        new Headers({ 'x-request-id': 'provider-request-123' }),
+      )
+      mockCreateCompletion.mockImplementation(() => Promise.reject(apiError))
+
+      const response = await captureApp.handle(
+        new Request('http://localhost/chat/completions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(validRequestBody),
+        }),
+      )
+
+      expect(response.status).toBe(400)
+      expect(captureInferenceErrorMock).toHaveBeenCalledWith({
+        provider: 'mistral',
+        status: 400,
+        model: 'mistral-large-3',
+        errorKind: 'context_length',
+        errorType: 'invalid_request_error',
+        errorCode: 'context_length_exceeded',
+        requestId: 'provider-request-123',
+        distinctId: 'test-user',
+      })
+    })
+
+    it('captures body-free structured metadata from a mid-stream API error', async () => {
+      const captureInferenceErrorMock = mock(() => {})
+      const captureApp = new Elysia().use(
+        createInferenceRoutes({
+          auth: mockAuth,
+          getClient: getInferenceClientMock,
+          isPostHogConfiguredFn: isPostHogConfiguredMock,
+          captureInferenceErrorFn: captureInferenceErrorMock,
+        }),
+      )
+      const apiError = new APIError(
+        529,
+        {
+          message: 'Overloaded',
+          type: 'overloaded_error',
+        },
+        undefined,
+        new Headers({ 'x-request-id': 'provider-stream-request-123' }),
+      )
+      const completionController = new AbortController()
+      const mockCompletion = {
+        controller: completionController,
+        async *[Symbol.asyncIterator]() {
+          yield { choices: [{ delta: { content: 'Hello' } }] }
+          throw apiError
+        },
+      }
+      mockCreateCompletion.mockImplementation(() => Promise.resolve(mockCompletion))
+
+      const response = await captureApp.handle(
+        new Request('http://localhost/chat/completions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...validRequestBody, model: 'opus-4.8' }),
+        }),
+      )
+
+      expect(response.status).toBe(200)
+      await expect(response.text()).rejects.toThrow('Overloaded')
+      expect(captureInferenceErrorMock).toHaveBeenCalledTimes(1)
+      expect(captureInferenceErrorMock).toHaveBeenCalledWith({
+        provider: 'anthropic',
+        status: 529,
+        model: 'opus-4.8',
+        errorKind: 'upstream_error',
+        errorType: 'overloaded_error',
+        errorCode: undefined,
+        requestId: 'provider-stream-request-123',
+        distinctId: 'test-user',
+        phase: 'stream',
+      })
+    })
+
+    it('does not capture downstream cancellation as a stream error', async () => {
+      const captureInferenceErrorMock = mock(() => {})
+      const captureApp = new Elysia().use(
+        createInferenceRoutes({
+          auth: mockAuth,
+          getClient: getInferenceClientMock,
+          isPostHogConfiguredFn: isPostHogConfiguredMock,
+          captureInferenceErrorFn: captureInferenceErrorMock,
+        }),
+      )
+      const completionController = new AbortController()
+      const iterationSettled = Promise.withResolvers<void>()
+      const mockCompletion = {
+        controller: completionController,
+        async *[Symbol.asyncIterator]() {
+          try {
+            yield { choices: [{ delta: { content: 'Hello' } }] }
+            await new Promise<void>((_resolve, reject) => {
+              completionController.signal.addEventListener('abort', () => reject(new Error('cancelled')), {
+                once: true,
+              })
+            })
+          } finally {
+            iterationSettled.resolve()
+          }
+        },
+      }
+      mockCreateCompletion.mockImplementation(() => Promise.resolve(mockCompletion))
+
+      const response = await captureApp.handle(
+        new Request('http://localhost/chat/completions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(validRequestBody),
+        }),
+      )
+      const reader = response.body!.getReader()
+
+      expect((await reader.read()).done).toBeFalse()
+      await reader.cancel()
+      await iterationSettled.promise
+      expect(captureInferenceErrorMock).not.toHaveBeenCalled()
+    })
+
+    it('captures connection timeouts before wrapping them', async () => {
+      const captureInferenceErrorMock = mock(() => {})
+      const captureApp = new Elysia().use(
+        createInferenceRoutes({
+          auth: mockAuth,
+          getClient: getInferenceClientMock,
+          isPostHogConfiguredFn: isPostHogConfiguredMock,
+          captureInferenceErrorFn: captureInferenceErrorMock,
+        }),
+      )
+      const connectionError = new APIConnectionTimeoutError({ message: 'Request timed out.' })
+      mockCreateCompletion.mockImplementation(() => Promise.reject(connectionError))
+
+      const response = await captureApp.handle(
+        new Request('http://localhost/chat/completions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(validRequestBody),
+        }),
+      )
+
+      expect(response.status).toBe(500)
+      expect(captureInferenceErrorMock).toHaveBeenCalledTimes(1)
+      expect(captureInferenceErrorMock).toHaveBeenCalledWith({
+        provider: 'mistral',
+        status: 500,
+        model: 'mistral-large-3',
+        errorKind: 'connection',
+        errorType: undefined,
+        errorCode: undefined,
+        requestId: undefined,
+        distinctId: 'test-user',
+      })
+      expect(consoleSpies.error).toHaveBeenCalledWith('Connection timeout to inference provider', connectionError.cause)
+    })
+
+    it('captures connection failures before wrapping them', async () => {
+      const captureInferenceErrorMock = mock(() => {})
+      const captureApp = new Elysia().use(
+        createInferenceRoutes({
+          auth: mockAuth,
+          getClient: getInferenceClientMock,
+          isPostHogConfiguredFn: isPostHogConfiguredMock,
+          captureInferenceErrorFn: captureInferenceErrorMock,
+        }),
+      )
+      const connectionError = new APIConnectionError({ message: 'Connection failed.' })
+      mockCreateCompletion.mockImplementation(() => Promise.reject(connectionError))
+
+      const response = await captureApp.handle(
+        new Request('http://localhost/chat/completions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(validRequestBody),
+        }),
+      )
+
+      expect(response.status).toBe(500)
+      expect(captureInferenceErrorMock).toHaveBeenCalledTimes(1)
+      expect(captureInferenceErrorMock).toHaveBeenCalledWith({
+        provider: 'mistral',
+        status: 500,
+        model: 'mistral-large-3',
+        errorKind: 'connection',
+        errorType: undefined,
+        errorCode: undefined,
+        requestId: undefined,
+        distinctId: 'test-user',
+      })
+      expect(consoleSpies.error).toHaveBeenCalledWith('Failed to connect to inference provider', connectionError.cause)
+    })
+
+    it('never captures provider error message content', async () => {
+      const sentinel = 'SECRET_PROMPT_FRAGMENT_XYZ'
+      const captureInferenceErrorMock = mock(() => {})
+      const captureApp = new Elysia().use(
+        createInferenceRoutes({
+          auth: mockAuth,
+          getClient: getInferenceClientMock,
+          isPostHogConfiguredFn: isPostHogConfiguredMock,
+          captureInferenceErrorFn: captureInferenceErrorMock,
+        }),
+      )
+      const apiError = new APIError(
+        400,
+        { message: sentinel, code: 'invalid_request_error', type: 'invalid_request_error' },
+        undefined,
+        new Headers(),
+      )
+      mockCreateCompletion.mockImplementation(() => Promise.reject(apiError))
+
+      await captureApp.handle(
+        new Request('http://localhost/chat/completions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(validRequestBody),
+        }),
+      )
+
+      expect(captureInferenceErrorMock).toHaveBeenCalledTimes(1)
+      expect(JSON.stringify(captureInferenceErrorMock.mock.calls)).not.toContain(sentinel)
+    })
+
     it('emits phase timing headers and a structured latency log on success', async () => {
       const entries: Array<{ context: InferenceProxyLatencyLog; message: string }> = []
       const timestamps = [100, 120, 170]
@@ -277,6 +522,7 @@ describe('Inference Routes', () => {
             event: 'inference_proxy_latency',
             route: '/chat/completions',
             provider: 'mistral',
+            model: 'mistral-large-3',
             status: 200,
             preMs: 20,
             upstreamMs: 50,
@@ -320,6 +566,7 @@ describe('Inference Routes', () => {
             event: 'inference_proxy_latency',
             route: '/chat/completions',
             provider: 'mistral',
+            model: 'mistral-large-3',
             status: 500,
             preMs: 30,
             upstreamMs: 80,
@@ -345,7 +592,7 @@ describe('Inference Routes', () => {
     })
 
     it('should validate all supported models', () => {
-      const expectedModels = ['mistral-medium-3.1', 'mistral-large-3', 'sonnet-4.5', 'opus-4.8', 'deepseek-v4-flash']
+      const expectedModels = ['mistral-medium-3.1', 'mistral-large-3', 'opus-4.8', 'deepseek-v4-flash']
       expect(Object.keys(supportedModels)).toEqual(expectedModels)
     })
 
