@@ -19,7 +19,6 @@ import ChatLayout from '@/layout/main-layout'
 import SettingsLayout from '@/settings/layout'
 import WaitlistLayout from '@/waitlist/layout'
 import WaitlistPage from '@/waitlist/waitlist-page'
-import { SidebarProvider } from '@/components/ui/sidebar'
 import { HapticsProvider } from '@/hooks/use-haptics'
 import {
   AuthProvider,
@@ -331,13 +330,11 @@ export const App = () => {
                       <ProxyFetchProvider>
                         <MCPProvider>
                           <HapticsProvider>
-                            <SidebarProvider>
-                              <ContentViewProvider>
-                                <ExternalLinkDialogProvider>
-                                  <AppContent initData={initData} />
-                                </ExternalLinkDialogProvider>
-                              </ContentViewProvider>
-                            </SidebarProvider>
+                            <ContentViewProvider>
+                              <ExternalLinkDialogProvider>
+                                <AppContent initData={initData} />
+                              </ExternalLinkDialogProvider>
+                            </ContentViewProvider>
                           </HapticsProvider>
                         </MCPProvider>
                       </ProxyFetchProvider>
