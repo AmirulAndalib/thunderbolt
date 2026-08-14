@@ -23,7 +23,9 @@ import { extractLastUserText, resolveSkillTokenInstructions } from '@/skills/res
 import { getDb as defaultGetDb } from '@/db/database'
 import {
   getChatErrorKind,
+  getErrorName,
   getErrorRetryable,
+  getErrorStatusCode,
   isContentRejectionError,
   isContextOverflowError,
   isRateLimitError,
@@ -40,6 +42,7 @@ import { deriveToolKey, findAllowOption, useChatStore } from './chat-store'
 
 export const maxRetries = 3
 const baseRetryDelayMs = 2000
+const emptyTurnRetryDelayMs = 250
 
 /**
  * Calculate retry delay with exponential backoff and jitter.
@@ -656,9 +659,9 @@ export const createChatInstance = (
   }
 
   /** Stop retrying this turn and record why it stopped. */
-  const markRetriesExhausted = (turn: TurnState) => {
+  const markRetriesExhausted = (turn: TurnState, reason: string = getChatErrorKind(lastError) ?? 'unknown') => {
     trackEvent('chat_retries_exhausted', {
-      reason: getChatErrorKind(lastError) ?? 'unknown',
+      reason,
       attempts: retryCount + 1,
       ...getTurnContextProperties(turn.telemetry, turn.modelProperties),
     })
@@ -767,6 +770,9 @@ export const createChatInstance = (
         return
       }
 
+      const isEmptyTurn = !isError && !lastError && !message?.parts?.length
+      const retryReason = getChatErrorKind(lastError) ?? (isEmptyTurn ? 'empty-response' : 'unknown')
+
       if (retryCount < maxRetries) {
         if (turnBudget.probe.isExhausted) {
           finishedTurn.telemetry?.recordRetry({
@@ -774,7 +780,7 @@ export const createChatInstance = (
             reason: 'request_budget_exhausted',
             attempt: retryCount + 1,
           })
-          markRetriesExhausted(finishedTurn)
+          markRetriesExhausted(finishedTurn, retryReason)
           return
         }
 
@@ -782,15 +788,17 @@ export const createChatInstance = (
         useChatStore.getState().updateSession(id, { retryCount })
         console.info(`Auto-retrying (${retryCount}/${maxRetries})...`)
 
+        const retryDelayMs = isEmptyTurn && retryCount === 1 ? emptyTurnRetryDelayMs : getRetryDelay(retryCount)
+
         trackEvent('chat_auto_retry', {
           attempt: retryCount,
           max_retries: maxRetries,
-          reason: getChatErrorKind(lastError) ?? 'unknown',
+          reason: retryReason,
           ...getTurnContextProperties(finishedTurn.telemetry, finishedTurn.modelProperties),
         })
         finishedTurn.telemetry?.recordRetry({
           layer: 'auto_retry',
-          reason: getChatErrorKind(lastError) ?? 'unknown',
+          reason: retryReason,
           attempt: retryCount + 1,
         })
 
@@ -800,9 +808,8 @@ export const createChatInstance = (
           // Only retry if the session still exists AND is still the current active session.
           // This prevents retries from executing when the user has switched to a different thread.
           if (!sessions.has(id) || currentSessionId !== id) {
-            // Reset retry state when bailing out due to session switch, so the UI
-            // doesn't show "Retrying..." when the user switches back to this session.
             resetRetryStateForNewTurn()
+            useChatStore.getState().updateSession(id, { retriesExhausted: true })
             return
           }
           regenerateResponse().catch((err) => {
@@ -812,9 +819,9 @@ export const createChatInstance = (
             // either schedule another retry (if retryCount < maxRetries) or set
             // retriesExhausted: true (if retries are exhausted).
           })
-        }, getRetryDelay(retryCount))
+        }, retryDelayMs)
       } else {
-        markRetriesExhausted(finishedTurn)
+        markRetriesExhausted(finishedTurn, retryReason)
       }
     },
     // Retry logic lives in onFinish (the SDK's finally block), not here.
@@ -826,6 +833,13 @@ export const createChatInstance = (
       console.error('Chat error:', error)
       lastError = error instanceof Error ? error : new Error(String(error))
       currentTurn.telemetry?.recordError(getChatErrorKind(lastError) ?? lastError.name)
+      trackEvent('chat_turn_error', {
+        kind: getChatErrorKind(lastError) ?? 'unknown',
+        error_name: getErrorName(lastError),
+        status: getErrorStatusCode(lastError),
+        retryable: getErrorRetryable(lastError),
+        ...getTurnContextProperties(currentTurn.telemetry, currentTurn.modelProperties),
+      })
     },
   })
 

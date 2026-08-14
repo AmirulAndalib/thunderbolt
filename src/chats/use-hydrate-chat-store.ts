@@ -237,13 +237,11 @@ export const useHydrateChatStore = ({ id, isNew }: UseHydrateChatStoreParams) =>
       return
     }
 
-    const chatInstance = createChatInstance(
-      id,
-      initialMessages.map(convertDbChatMessageToUIMessage) as ThunderboltUIMessage[],
-      saveMessages,
-      httpClient,
-      getProxyFetch,
-    )
+    const initialUiMessages = initialMessages.map(convertDbChatMessageToUIMessage) as ThunderboltUIMessage[]
+    const chatInstance = createChatInstance(id, initialUiMessages, saveMessages, httpClient, getProxyFetch)
+
+    const lastInitialMessage = initialUiMessages[initialUiMessages.length - 1]
+    const hydratedTrailingEmptyTurn = lastInitialMessage?.role === 'assistant' && !lastInitialMessage.parts?.length
 
     createSession({
       chatInstance,
@@ -253,7 +251,7 @@ export const useHydrateChatStore = ({ id, isNew }: UseHydrateChatStoreParams) =>
       id,
       pendingPermission: null,
       retryCount: 0,
-      retriesExhausted: false,
+      retriesExhausted: hydratedTrailingEmptyTurn,
       // Persisted via `chatThreads.agentId`; resolved above (first available
       // agent when the persisted id no longer matches).
       selectedAgent,
