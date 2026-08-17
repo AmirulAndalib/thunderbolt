@@ -3,6 +3,9 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 import { assembleBuiltInModelInput, createPromptParts, type BuiltInModelInput } from '@/ai/prompt'
+import { loadProjectContextForThread } from '@/projects/load-project-context'
+import { buildProjectPromptSection } from '@/projects/project-prompt'
+import { createProjectSearchTool } from '@/projects/project-search-tool'
 import { createTurnBudget, createTurnBudgetExhaustedError, type TurnBudgetConsumer } from '@/ai/retry-budget'
 import type { TurnTelemetry } from '@/ai/turn-telemetry'
 import type { WebToolBudget } from '@/ai/web-tool-budget'
@@ -518,6 +521,9 @@ export type PrepareAiRequestConfigOptions = {
   readonly reconnectClient?: ReconnectClient
   readonly httpClient: HttpClient
   readonly webToolBudget?: WebToolBudget
+  /** Thread being sent to. Resolves the owning project's instructions into the
+   *  stable system prompt; omit for non-thread callers. */
+  readonly chatThreadId?: string
   readonly telemetry?: TurnTelemetry
 }
 
@@ -549,6 +555,7 @@ export const prepareAiRequestConfig = async ({
   reconnectClient = async () => null,
   httpClient,
   webToolBudget,
+  chatThreadId,
   telemetry,
 }: PrepareAiRequestConfigOptions): Promise<PreparedAiRequestConfig> => {
   telemetry?.startPhase('request_config')
@@ -577,12 +584,26 @@ export const prepareAiRequestConfig = async ({
   telemetry?.endPhase('request_config')
   const skills = selectEnabledSkillDefinitions(storedSkills)
   const supportsTools = model.toolUsage !== 0
+  // Loaded before the toolset so the cross-chat search tool can be registered
+  // conditionally alongside the other app tools.
+  const projectContext = await loadProjectContextForThread(db, chatThreadId)
   const sourceCollector: SourceMetadata[] = []
   const toolCallCache: ToolCallCache = new Map()
   const availableTools = supportsTools
     ? await getAvailableTools(httpClient, sourceCollector, { settings, integrationStatus })
     : []
   const appToolset = addSkillTool(createToolset(availableTools, toolCallCache, webToolBudget), skills, supportsTools)
+  // Cross-chat recall is a tool, not an injection: it costs nothing when unused
+  // and leaves the cacheable stable prompt untouched. Only registered when there
+  // is actually something to search.
+  if (supportsTools && projectContext && projectContext.siblingThreadIds.length > 0) {
+    appToolset.search_project_chats = createProjectSearchTool({
+      db,
+      projectName: projectContext.prompt.name,
+      threadIds: projectContext.siblingThreadIds,
+      titleByThreadId: projectContext.titleByThreadId,
+    })
+  }
   const hasWebTools = 'search' in appToolset && 'fetch_content' in appToolset
   telemetry?.startPhase('mcp_discovery')
   const merged = supportsTools
@@ -598,6 +619,10 @@ export const prepareAiRequestConfig = async ({
   const prompt = createPromptParts({
     modelName: model.name,
     profile,
+    projectSection: buildProjectPromptSection(projectContext?.prompt ?? null, {
+      // Only advertise the tool when it was actually registered above.
+      hasSearchableChats: supportsTools && (projectContext?.siblingThreadIds.length ?? 0) > 0,
+    }),
     preferredName: settings.preferredName,
     location: {
       name: settings.locationName,
@@ -694,6 +719,9 @@ export const aiFetchStreamingResponse = async ({
     reconnectClient,
     httpClient,
     webToolBudget,
+    // The chat id rides the request body (see the destructure above), which is
+    // how this path knows which thread — and so which project — it is serving.
+    chatThreadId: typeof body?.id === 'string' ? body.id : undefined,
     telemetry,
   })
   if (!supportsTools) {

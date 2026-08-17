@@ -462,6 +462,10 @@ const fetchViaHarness = async (
     reconnectClient: context.reconnectClient,
     httpClient: context.httpClient,
     webToolBudget: context.webToolBudget,
+    // Pulls in the owning project's instructions. They land in the stable
+    // prompt, which `harnessSignature` fingerprints — so editing a project
+    // mid-thread rebuilds the harness on the next send by itself.
+    chatThreadId: context.threadId,
     telemetry: context.telemetry,
   })
   const resolved = resolvePiModel(agentCore, context, config.profile)
