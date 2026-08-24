@@ -19,6 +19,7 @@ import {
   runWithInferenceAttemptTracking,
   type InferenceClient,
   type InferenceLogger,
+  type InferenceProxyLatencyLog,
   type InferenceProvider,
 } from './client'
 
@@ -46,23 +47,9 @@ export const supportedModels: Record<string, ModelConfig> = {
     omitTemperature: true,
   },
   'deepseek-v4-flash': {
-    provider: 'fireworks',
-    // Fireworks deprecated the serverless deepseek-v4-flash preview (404 NOT_FOUND
-    // since 2026-08-15); 0731 is the official release that supersedes it.
-    internalName: 'accounts/fireworks/models/deepseek-v4-flash-0731',
+    provider: 'tinfoil',
+    internalName: 'deepseek-v4-flash',
   },
-}
-
-export type InferenceProxyLatencyLog = {
-  event: 'inference_proxy_latency'
-  route: string
-  provider: InferenceProvider
-  model: string
-  status: number
-  preMs: number
-  upstreamMs: number
-  totalMs: number
-  attempts: number
 }
 
 export type CreateInferenceRoutesOptions = {

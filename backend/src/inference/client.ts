@@ -9,7 +9,7 @@ import { OpenAI as PostHogOpenAI } from '@posthog/ai'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import OpenAI from 'openai'
 
-export type InferenceProvider = 'fireworks' | 'mistral' | 'anthropic'
+export type InferenceProvider = 'fireworks' | 'mistral' | 'anthropic' | 'tinfoil'
 
 export type InferenceClient = {
   client: OpenAI | PostHogOpenAI
@@ -28,8 +28,22 @@ export type InferenceUpstreamAttemptLog = {
   rate_limit_headers?: Record<string, string>
 }
 
+export type InferenceProxyLatencyLog = {
+  event: 'inference_proxy_latency'
+  route: string
+  provider: InferenceProvider
+  model: string
+  status: number
+  preMs: number
+  upstreamMs: number
+  totalMs: number
+  attempts: number
+}
+
+type InferenceLogContext = InferenceUpstreamAttemptLog | InferenceProxyLatencyLog
+
 export type InferenceLogger = {
-  info: (context: InferenceUpstreamAttemptLog | object, message: string) => void
+  info: (context: InferenceLogContext, message: string) => void
 }
 
 export type InferenceClientOptions = {
@@ -90,49 +104,62 @@ export const createInferenceFetch = ({
   logger,
   nowFn = () => performance.now(),
 }: InferenceFetchOptions): typeof fetch => {
-  const instrumentedFetch = async (input: RequestInfo | URL, init?: RequestInit) => {
-    const attempt = getAttemptIndex(input, init)
-    const tracker = inferenceAttemptStorage.getStore()
-    if (tracker) {
-      tracker.attempts = Math.max(tracker.attempts, attempt)
-    }
+  const instrumentedFetch = Object.assign(
+    async (input: RequestInfo | URL, init?: RequestInit) => {
+      const attempt = getAttemptIndex(input, init)
+      const tracker = inferenceAttemptStorage.getStore()
+      if (tracker) {
+        tracker.attempts = Math.max(tracker.attempts, attempt)
+      }
 
-    const startedAt = nowFn()
-    const requestContext = {
-      provider,
-      attempt,
-      method: getRequestMethod(input, init),
-      host: getRequestHost(input),
-    }
+      const startedAt = nowFn()
+      const requestContext = {
+        provider,
+        attempt,
+        method: getRequestMethod(input, init),
+        host: getRequestHost(input),
+      }
 
-    try {
-      const response = await fetchFn(input, init)
-      const rateLimitHeaders = getRateLimitHeaders(response.headers)
-      const retryAfter = response.headers.get('retry-after')
-      logUpstreamAttempt(logger, {
-        ...requestContext,
-        status: response.status,
-        duration_ms: elapsedMs(startedAt, nowFn()),
-        ...(retryAfter === null ? {} : { retry_after: retryAfter }),
-        ...(Object.keys(rateLimitHeaders).length === 0 ? {} : { rate_limit_headers: rateLimitHeaders }),
-      })
-      return response
-    } catch (error) {
-      logUpstreamAttempt(logger, {
-        ...requestContext,
-        status: null,
-        duration_ms: elapsedMs(startedAt, nowFn()),
-      })
-      throw error
-    }
-  }
-  return instrumentedFetch as unknown as typeof fetch
+      try {
+        const response = await fetchFn(input, init)
+        const rateLimitHeaders = getRateLimitHeaders(response.headers)
+        const retryAfter = response.headers.get('retry-after')
+        const logContext: Omit<InferenceUpstreamAttemptLog, 'event'> = {
+          ...requestContext,
+          status: response.status,
+          duration_ms: elapsedMs(startedAt, nowFn()),
+        }
+        if (retryAfter !== null) {
+          logContext.retry_after = retryAfter
+        }
+        if (Object.keys(rateLimitHeaders).length > 0) {
+          logContext.rate_limit_headers = rateLimitHeaders
+        }
+        logUpstreamAttempt(logger, logContext)
+        return response
+      } catch (error) {
+        logUpstreamAttempt(logger, {
+          ...requestContext,
+          status: null,
+          duration_ms: elapsedMs(startedAt, nowFn()),
+        })
+        throw error
+      }
+    },
+    { preconnect: fetchFn.preconnect },
+  )
+  return instrumentedFetch
 }
 
 /**
  * Lazily initialized Fireworks client
  */
 let fireworksClient: OpenAI | PostHogOpenAI | null = null
+
+/**
+ * Lazily initialized direct Tinfoil client
+ */
+let tinfoilDirectClient: OpenAI | PostHogOpenAI | null = null
 
 /**
  * Lazily initialized Mistral client
@@ -177,6 +204,42 @@ const getFireworksClient = (options: InferenceClientOptions = {}): OpenAI | Post
   // Only cache if no custom fetchFn was provided
   if (!fetchFn) {
     fireworksClient = client
+  }
+
+  return client
+}
+
+/**
+ * Get the direct Tinfoil OpenAI-compatible client.
+ * This path uses standard HTTPS without SecureClient attestation or EHBP.
+ */
+const getTinfoilDirectClient = (options: InferenceClientOptions = {}): OpenAI | PostHogOpenAI => {
+  const { fetchFn, logger, nowFn } = options
+  if (tinfoilDirectClient && !fetchFn) {
+    return tinfoilDirectClient
+  }
+
+  const settings = getSettings()
+
+  if (!settings.tinfoilApiKey) {
+    throw new Error('Tinfoil API key not configured')
+  }
+
+  const params = {
+    apiKey: settings.tinfoilApiKey,
+    baseURL: settings.tinfoilEnclaveUrl.replace(/\/$/, ''),
+    fetch: createInferenceFetch({ provider: 'tinfoil', fetchFn, logger, nowFn }),
+  }
+
+  const client = isPostHogConfigured()
+    ? new PostHogOpenAI({
+        ...params,
+        posthog: getPostHogClient(fetchFn),
+      })
+    : new OpenAI(params)
+
+  if (!fetchFn) {
+    tinfoilDirectClient = client
   }
 
   return client
@@ -260,11 +323,12 @@ export const getInferenceClient = (
   provider: InferenceProvider,
   options: InferenceClientOptions = {},
 ): InferenceClient => {
-  const clientMap: Record<InferenceProvider, () => OpenAI | PostHogOpenAI> = {
+  const clientMap = {
     mistral: () => getMistralClient(options),
     anthropic: () => getAnthropicClient(options),
     fireworks: () => getFireworksClient(options),
-  }
+    tinfoil: () => getTinfoilDirectClient(options),
+  } satisfies Record<InferenceProvider, () => OpenAI | PostHogOpenAI>
 
   const client = clientMap[provider]()
 
@@ -280,6 +344,7 @@ export const getInferenceClient = (
  */
 export const clearInferenceClientCache = () => {
   fireworksClient = null
+  tinfoilDirectClient = null
   mistralClient = null
   anthropicClient = null
 }
