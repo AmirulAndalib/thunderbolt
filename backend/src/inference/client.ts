@@ -6,6 +6,7 @@ import { getSettings } from '@/config/settings'
 import { getPostHogClient, isPostHogConfigured } from '@/posthog/client'
 import { elapsedMs } from '@/utils/timing'
 import { OpenAI as PostHogOpenAI } from '@posthog/ai'
+import type { managedGlmIdentity } from '@shared/inference-usage'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import OpenAI from 'openai'
 
@@ -35,15 +36,58 @@ export type InferenceProxyLatencyLog = {
   model: string
   status: number
   preMs: number
-  upstreamMs: number
+  upstreamMs: number | null
   totalMs: number
   attempts: number
 }
 
-type InferenceLogContext = InferenceUpstreamAttemptLog | InferenceProxyLatencyLog
+export type InferenceUsageLog =
+  | {
+      event: 'inference_usage_completed'
+      provider: InferenceProvider
+      model: string
+      eventId: string
+      transport: 'direct'
+    }
+  | {
+      event: 'inference_usage_inserted'
+      provider: InferenceProvider
+      model: string
+      eventId: string
+      outcome: 'inserted' | 'duplicate'
+    }
+  | (typeof managedGlmIdentity & {
+      event: 'inference_usage_receipt_issued'
+      eventId: string
+      route: string
+    })
+
+export type InferenceRouteLog =
+  | ({ provider: InferenceProvider; model: string; route: string } & (
+      | { event: 'inference_connection_timeout' }
+      | { event: 'inference_connection_failed' }
+      | { event: 'inference_usage_missing' }
+      | { event: 'inference_usage_callback_failed' }
+    ))
+  | InferenceUsageLog
+
+type InferenceLogContext = InferenceUpstreamAttemptLog | InferenceProxyLatencyLog | InferenceRouteLog
 
 export type InferenceLogger = {
   info: (context: InferenceLogContext, message: string) => void
+}
+
+/** Emit inference telemetry without allowing logger failures to alter request control flow. */
+export const logInferenceSafely = (
+  logger: InferenceLogger | undefined,
+  context: InferenceLogContext,
+  message: string,
+): void => {
+  try {
+    logger?.info(context, message)
+  } catch {
+    // Inference behavior must not depend on usage telemetry availability.
+  }
 }
 
 export type InferenceClientOptions = {
