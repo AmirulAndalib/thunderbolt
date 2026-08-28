@@ -2,10 +2,12 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-import '@/lib/dayjs'
+import { I18nProvider } from '@lingui/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router'
 import { PowerSyncContext } from '@powersync/react'
+
+import { i18n } from '@/i18n'
 
 import ChatDetailPage from '@/chats/detail'
 import MagicLinkVerify from '@/components/magic-link-verify'
@@ -31,6 +33,8 @@ import {
   useHttpClient,
 } from '@/contexts'
 import { usePageTracking } from '@/hooks/use-analytics'
+import { useAppLanguage } from '@/hooks/use-app-language'
+import { useUnitDefaults } from '@/hooks/use-unit-defaults'
 import { useDeepLinkListener } from '@/hooks/use-deep-link-listener'
 import { useKeyboardInset } from '@/hooks/use-keyboard-inset'
 import { useViewportLock } from '@/hooks/use-viewport-lock'
@@ -173,6 +177,8 @@ const useBootstrapSystemAgents = () => {
 const AppContent = ({ initData }: { initData: InitData }) => {
   useMcpSync()
   useBootstrapSystemAgents()
+  useAppLanguage()
+  useUnitDefaults()
   useKeyboardInset()
   useViewportLock()
   useSafeAreaInset()
@@ -372,14 +378,18 @@ export const App = () => {
   }
 
   return (
-    <ThemeProvider>
-      <LazyMotion features={loadMotionFeatures} strict>
-        {renderAppContent()}
-        <WindowControls />
-        {/* The upgrade blocker replaces the whole app, so it must win over the
-            revoked-device modal that renders outside renderAppContent. */}
-        <RevokedDeviceModal open={revokedDeviceOpen && !upgradeRequired} />
-      </LazyMotion>
-    </ThemeProvider>
+    // The source locale is activated synchronously in src/i18n, so the
+    // provider never blocks first paint waiting for a catalog chunk.
+    <I18nProvider i18n={i18n}>
+      <ThemeProvider>
+        <LazyMotion features={loadMotionFeatures} strict>
+          {renderAppContent()}
+          <WindowControls />
+          {/* The upgrade blocker replaces the whole app, so it must win over the
+              revoked-device modal that renders outside renderAppContent. */}
+          <RevokedDeviceModal open={revokedDeviceOpen && !upgradeRequired} />
+        </LazyMotion>
+      </ThemeProvider>
+    </I18nProvider>
   )
 }
