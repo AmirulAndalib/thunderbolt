@@ -62,6 +62,7 @@ import type { PiModelDescriptor, SeedTurn } from '@shared/agent-core'
 import { buildClientIdentityBlock } from '@shared/agent-core/client-identity'
 import { appHarnessEnvironmentPrompt } from '@shared/agent-core/environment-prompt'
 import { vendorSupportsImages } from '@shared/defaults/models'
+import { inferenceModelHeader } from '@shared/inference-usage'
 import type { AgentHarness, AgentTool, ThinkingLevel } from '@earendil-works/pi-agent-core'
 import type { SecureClient } from 'tinfoil'
 import {
@@ -112,7 +113,10 @@ type CachedHarness = {
 type HarnessCache = Map<string, CachedHarness>
 
 /** Stable and volatile prompt parts needed by the Pi harness. */
-type AppHarnessSystemPromptConfig = Pick<PreparedAiRequestConfig, 'stableSystemPrompt' | 'volatileSystemPrompt'>
+type AppHarnessSystemPromptConfig = Pick<
+  PreparedAiRequestConfig,
+  'stableSystemPrompt' | 'volatileSystemPrompt' | 'supportsTools'
+>
 
 /** Production injection point — production binds to `aiFetchStreamingResponse`. */
 export type AiFetchStreamingResponseFn = typeof aiFetchStreamingResponse
@@ -332,6 +336,7 @@ export const resolvePiModel = async (
       const fetch: PiModelDescriptor['fetch'] = async (input, init) => {
         const token = readAuthToken()
         const headers = new Headers(init?.headers)
+        headers.set(inferenceModelHeader, model.model)
         for (const [key, value] of Object.entries(appVersionHeader())) {
           headers.set(key, value)
         }
@@ -498,7 +503,8 @@ export const composeAppHarnessSystemPrompt = (config: AppHarnessSystemPromptConf
     environment,
     appVersion: import.meta.env.VITE_APP_VERSION,
   })
-  return `${config.stableSystemPrompt}\n\n${clientIdentity}\n\n${appHarnessEnvironmentPrompt}\n\n${config.volatileSystemPrompt}`
+  const environmentBlock = config.supportsTools ? `\n\n${appHarnessEnvironmentPrompt}` : ''
+  return `${config.stableSystemPrompt}\n\n${clientIdentity}${environmentBlock}\n\n${config.volatileSystemPrompt}`
 }
 
 /** Build a thread's harness from the lazily-loaded engine and bind it to the
