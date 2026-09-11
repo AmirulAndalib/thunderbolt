@@ -26,11 +26,19 @@ import { ErrorEvent } from 'eventsource'
 import { SSEClientTransport, SseError } from '@modelcontextprotocol/sdk/client/sse.js'
 import { UnauthorizedError } from '@modelcontextprotocol/sdk/client/auth.js'
 import {
+  beginDebugTranscriptTurn,
+  clearDebugTranscriptRecorder,
+  getDebugTranscriptNotes,
+  recordDebugTranscriptSystemPrompts,
+  setDebugTranscriptCaptureEnabled,
+} from '@/debug-transcript/recorder'
+import {
   addSkillTool,
   buildVolatileSystemNotes,
   createModel,
   mergeMcpTools,
   prepareAiRequestConfig,
+  recordLegacyEmptyResponseRetry,
   resolveOpenAiCompatConnection,
   sanitizeToolPrefix,
   selectPromptSkillDefinitions,
@@ -51,6 +59,45 @@ const capturingFetch = () => {
   )
   return { fn, received: () => received }
 }
+
+describe('legacy empty-response retry capture', () => {
+  it('records the completed attempt and advances prompt capture to the next attempt', () => {
+    clearDebugTranscriptRecorder()
+    setDebugTranscriptCaptureEnabled(true)
+    beginDebugTranscriptTurn({
+      threadId: 'thread-retry',
+      traceId: 'trace-retry',
+      engine: 'legacy',
+      model: { id: 'model-1', name: 'Test model', provider: 'test' },
+      agentId: 'built-in',
+    })
+
+    try {
+      recordLegacyEmptyResponseRetry(undefined, { threadId: 'thread-retry', traceId: 'trace-retry' }, 1)
+      recordDebugTranscriptSystemPrompts('thread-retry', 'trace-retry', ['Retry system prompt'])
+
+      expect(getDebugTranscriptNotes('thread-retry')[0]).toMatchObject({
+        failures: [{ attempt: 1, retryReasons: ['empty-response'] }],
+        systemPrompts: [{ text: 'Retry system prompt', attempt: 2 }],
+      })
+    } finally {
+      setDebugTranscriptCaptureEnabled(false)
+      clearDebugTranscriptRecorder()
+    }
+  })
+
+  it('keeps the PostHog empty-response vocabulary unchanged', () => {
+    const recordRetry = mock(() => {})
+
+    recordLegacyEmptyResponseRetry({ recordRetry }, undefined, 1)
+
+    expect(recordRetry).toHaveBeenCalledWith({
+      layer: 'empty_response',
+      reason: 'empty_response',
+      attempt: 2,
+    })
+  })
+})
 
 /** Mirror the `MCPClientError` the SDK throws after a transport drop. The
  *  runtime instance `name` is `'MCPClientError'` (the `AI_MCPClientError`

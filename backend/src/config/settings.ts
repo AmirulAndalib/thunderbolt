@@ -108,6 +108,12 @@ const settingsSchema = z
     // E2E encryption — when true, devices must complete the trust flow before syncing
     e2eeEnabled: z.boolean().default(false),
 
+    // Intake role: mounts POST /v1/debug-transcripts/intake. Thunderbolt production only.
+    debugTranscriptIntakeEnabled: z.boolean().default(false),
+    // Relay role: where this deployment forwards user transcripts, and its client key.
+    // Both set = the share feature is enabled for this deployment's users.
+    debugTranscriptUpstreamUrl: z.string().trim().default(''),
+    debugTranscriptUpstreamKey: z.string().trim().default(''),
     // Rollout order: docs/self-hosting/configuration.md#cli-device-rollout.
     // Kill switch for the server-owned CLI device row.
     cliDeviceRegistrationEnabled: z.boolean().default(false),
@@ -177,7 +183,17 @@ const settingsSchema = z
         input: '[REDACTED]',
       })
     }
+    const hasUpstreamUrl = data.debugTranscriptUpstreamUrl !== ''
+    const hasUpstreamKey = data.debugTranscriptUpstreamKey !== ''
+    if (hasUpstreamUrl !== hasUpstreamKey) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'debugTranscriptUpstreamUrl and debugTranscriptUpstreamKey must be set together',
+        path: [hasUpstreamUrl ? 'debugTranscriptUpstreamKey' : 'debugTranscriptUpstreamUrl'],
+      })
+    }
   })
+  .transform((data) => ({ ...data, debugTranscriptsEnabled: data.debugTranscriptUpstreamUrl !== '' }))
 
 export type Settings = z.infer<typeof settingsSchema>
 
@@ -233,6 +249,9 @@ const parseSettings = (): Settings => {
     corsAllowHeaders: process.env.CORS_ALLOW_HEADERS || '',
     corsExposeHeaders: process.env.CORS_EXPOSE_HEADERS || defaultCorsExposeHeaders,
     e2eeEnabled: process.env.E2EE_ENABLED === 'true',
+    debugTranscriptIntakeEnabled: process.env.DEBUG_TRANSCRIPT_INTAKE_ENABLED === 'true',
+    debugTranscriptUpstreamUrl: process.env.DEBUG_TRANSCRIPT_UPSTREAM_URL || '',
+    debugTranscriptUpstreamKey: process.env.DEBUG_TRANSCRIPT_UPSTREAM_KEY || '',
     cliDeviceRegistrationEnabled: process.env.CLI_DEVICE_REGISTRATION_ENABLED === 'true',
     confidentialApiKeysEnabled: process.env.CONFIDENTIAL_API_KEYS_ENABLED === 'true',
     minAppVersion: process.env.MIN_APP_VERSION || '',
