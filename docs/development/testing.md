@@ -27,7 +27,7 @@ bun run e2e
 bun run e2e:headed   # with a visible browser
 ```
 
-**Note**: Don't run `bun test` directly from the project root — Bun's positional args are substring filters (not paths), so a filter like `src/` matches `backend/src/...` and pulls in backend tests. The `test` script uses `bun test --cwd=src` to scope discovery to the frontend tree, then runs the `shared/` test paths it enumerates (`shared/*.test.ts`, `shared/defaults/`, `shared/i18n/` — `shared/agent-core/` has its own `test:agent-core` script), `scripts/create-release.test.ts`, `scripts/check-e2e-specs-collected.test.ts`, `scripts/notify-on-failure.test.ts`, `scripts/sanitize-nightly-artifacts.test.ts`, and the selected `.github/scripts/*.test.*` files by explicit path (`shared/` is outside `--cwd=src`, and Bun skips hidden dirs in discovery, so each path must be explicit).
+**Note**: Don't run `bun test` directly from the project root — Bun's positional args are substring filters (not paths), so a filter like `src/` matches `backend/src/...` and pulls in backend tests. The `test` script uses `bun test --cwd=src` to scope discovery to the frontend tree, then runs the `shared/` test paths it enumerates (`shared/*.test.ts`, `shared/defaults/`, `shared/i18n/` — `shared/agent-core/` has its own `test:agent-core` script), `scripts/create-release.test.ts`, `scripts/check-e2e-specs-collected.test.ts`, `scripts/notify-on-failure.test.ts`, `scripts/sanitize-nightly-artifacts.test.ts`, and the selected `.github/scripts/*.test.*` files by explicit path (`shared/` is outside `--cwd=src`, and Bun skips hidden dirs in discovery, so each path must be explicit). It runs `bun test --cwd=e2e db-diagnostic.test.ts` separately because root `bunfig.toml` excludes `e2e/**` from Bun discovery; Playwright collects only `*.spec.ts` files.
 
 **`shared/agent-core` is the app's in-browser adapter around the npm `@earendil-works/pi-agent-core` package**, not that package itself. Its nested unit tests sit outside frontend test discovery, so they are intentionally **not** part of `bun run test`. Run them with `bun run test:agent-core` (or `bun run test:agent-core:5x` for the 5x-stability gate). In CI, the dedicated `agent-core` job in [`ci.yml`](../../.github/workflows/ci.yml) runs the 5x unit gate and browser check when the module, dependencies, build configuration, browser check, or workflow changes. The CLI imports the npm Pi package directly and imports the OpenAI-compatible and confidential-model builders plus receipt lifecycle from `shared/agent-core`, unit-tested by `bun run test:agent-core`; its integration coverage remains in the CLI suite.
 
@@ -255,38 +255,16 @@ bun run e2e:preview
 
 ### Nightly E2E
 
-[`nightly.yml`](../../.github/workflows/nightly.yml) runs daily at 04:00 UTC and can be started manually with `gh workflow run nightly.yml --ref main`. Its Linux job runs Chromium and Firefox on desktop and mobile viewports against temporary PostgreSQL and PowerSync service containers (currently 200 cases). Its macOS job runs WebKit on desktop and iPhone viewports (currently 100 cases). Failure reports are sanitized before upload, with trace content and network data removed; videos are retained unchanged. This is a scheduled coverage run, not a blocking PR check. PRs still use the two-shard Chromium workflow in [`e2e.yml`](../../.github/workflows/e2e.yml).
+[`nightly.yml`](../../.github/workflows/nightly.yml) runs the Playwright suite on Linux in desktop and mobile Chromium and Firefox, using PostgreSQL and PowerSync containers. On macOS it runs desktop and iPhone WebKit with in-memory test backends. The regular PR workflow, [`e2e.yml`](../../.github/workflows/e2e.yml), runs Chromium.
 
-The sanitizer is `scripts/sanitize-nightly-artifacts.ts`; run its synthetic artifact check with `bun test scripts/sanitize-nightly-artifacts.test.ts --timeout 5000`. Nightly runs that check before sanitizing each report and uploads a failure report only if sanitization succeeds.
-
-The Nightly and reusable notification workflows pin Bun 1.3.14. Use that version when reproducing their CI failures locally.
-
-To reproduce the Linux job, check `docker ps` for port conflicts first. The local helper builds containers from this checkout; CI uses published `:latest` images. With local Docker, Compose publishes on loopback by default and the runner reaches containers at `127.0.0.1`. With remote Docker, containers and published ports are on the Docker host: set `NIGHTLY_DOCKER_BIND` to the host's private interface address and `NIGHTLY_HOST` to an address the test runner can reach on that interface. Keep the default loopback binding for local Docker; do not publish the test databases on every interface. Bun, Vite, the backend, and Playwright still run on the test runner. Set `ANTHROPIC_API_KEY`, `TINFOIL_API_KEY`, `TINFOIL_ENCLAVE_URL`, and `EXA_API_KEY` in your shell as needed for provider tests. CI reads them from the `preview` environment only for the Playwright steps; Playwright passes them to its backend processes.
+On a Mac, install WebKit and run the Nightly config from the repository root:
 
 ```sh
-docker ps
-export NIGHTLY_HOST=${NIGHTLY_HOST:-127.0.0.1}
-bunx playwright install chromium firefox
-docker compose -f deploy/nightly-compose.yml up -d --build --wait postgres
-(cd backend && DATABASE_DRIVER=postgres DATABASE_URL="postgresql://postgres:postgres@${NIGHTLY_HOST}:${NIGHTLY_POSTGRES_PORT:-15434}/postgres" bunx drizzle-kit migrate)
-docker compose -f deploy/nightly-compose.yml up -d --build --wait powersync
-NIGHTLY_DATABASE_URL="postgresql://postgres:postgres@${NIGHTLY_HOST}:${NIGHTLY_POSTGRES_PORT:-15434}/postgres" \
-NIGHTLY_POWERSYNC_URL="http://${NIGHTLY_HOST}:${NIGHTLY_POWERSYNC_PORT:-18081}" \
-NIGHTLY_PLATFORM=linux \
-E2E_NIGHTLY_UNIQUE_USERS=true CI=1 \
+bunx playwright install webkit
 bunx playwright test --config playwright.nightly.config.ts
-docker compose -f deploy/nightly-compose.yml down --volumes
 ```
 
-On a Mac running the app locally, `bunx playwright test --config playwright.nightly.config.ts` selects the WebKit projects and uses the test backends' in-memory databases. Nightly WebKit tests use a fresh persistent browser profile per case for OPFS support, clear OPFS on the local test frontend origins before app boot, and delete the profile afterward; regular PR tests keep Playwright's default contexts.
-
-### CI failure and recovery alerts
-
-Release, Nightly Images, Preview Cleanup, Previews Shared Deploy, and Nightly E2E notify after completed scheduled or manually dispatched runs. The regular E2E workflow notifies only for pushes to `main`; PR runs never send alerts. On the first failure, the notifier opens a Thunderbolt Linear issue in Backlog with the Bug label and emails `ALERT_RECIPIENTS` through Resend. Later failures update that issue. Recovery closes an open issue and emails `ALERT_RECIPIENTS`; success with no open issue is quiet. The notifier needs repository secrets `LINEAR_API_KEY` and `RESEND_API_KEY`, plus the `ALERT_RECIPIENTS` repository variable. Nightly E2E sends its `BETTERSTACK_HEARTBEAT_URL` ping only after both test jobs finish and the notification job succeeds. A failed test run can still ping after successful notification; a failed notification job prevents the ping.
-
-Recovery requires a completed run of the monitored scope and a success newer than the latest recorded failure. Release requires every platform and the CLI to succeed, so a single-platform dispatch cannot close a nightly incident. Previews Shared Deploy monitors the `previews-shared` stack; manual runs against another stack do not affect its incident. Preview Cleanup dry runs cannot recover an incident; a real run must finish its scan and any required destruction successfully. Failures in those workflows still alert under their workflow conditions. `scripts/notify-on-failure.test.ts` runs in the normal `bun run test` suite and its CI `test:5x` variant.
-
-The notifier authenticates incident state before updating it and uses the current `ALERT_RECIPIENTS` setting for email. Recipients are not stored in the Linear issue. If an email is pending, changing that setting blocks the retry until the previous value is restored or the incident is handled manually. An old incident without authenticated state, an edited or reformatted marker, or `LINEAR_API_KEY` rotation while an incident is open also requires manual repair. Recovery checks GitHub's completed run history and fails closed beyond its 1,000-run search limit. Resend keeps idempotency keys for 24 hours, so a retry after an accepted email and failed Linear update can still produce a duplicate after that window.
+On Linux, first start and migrate PostgreSQL, then start PowerSync using [`nightly-compose.yml`](../../deploy/nightly-compose.yml) and the setup in [`nightly.yml`](../../.github/workflows/nightly.yml). Set `NIGHTLY_DATABASE_URL` and `NIGHTLY_POWERSYNC_URL` to those services before running the same Playwright command. See [`playwright.nightly.config.ts`](../../playwright.nightly.config.ts) for browser selection and backend environment variables.
 
 ### Debugging Mock Leakage
 
